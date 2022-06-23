@@ -11,7 +11,7 @@ from typing import ClassVar, Optional
 from urllib import request
 from urllib.parse import quote, urlencode
 
-from selenium import webdriver
+import seleniumwire.undetected_chromedriver as uc
 
 from .api.sound import Sound
 from .api.user import User
@@ -29,8 +29,6 @@ os.environ["no_proxy"] = "127.0.0.1,localhost"
 
 BASE_URL = "https://m.tiktok.com/"
 DESKTOP_BASE_URL = "https://www.tiktok.com/"
-
-_thread_lock = threading.Lock()
 
 
 class TikTokApi:
@@ -159,7 +157,8 @@ class TikTokApi:
             )
 
         if self._signer_url is None:
-            self._browser = webdriver.Chrome()
+            
+            self._browser = uc.Chrome(version_main=102)
 
             self._user_agent = self._browser.execute_script("return navigator.userAgent")
 
@@ -185,7 +184,6 @@ class TikTokApi:
             self._language = "en"
             raise e from e
 
-        
 
     def get_data(self, path, subdomain="m", **kwargs) -> dict:
         """Makes requests to TikTok and returns their JSON.
@@ -264,7 +262,8 @@ class TikTokApi:
                     "Tiktok wants to display a captcha.\nURL:\n%s",
                     url,
                 )
-                self._browser.get(base_url)
+                captcha_url = 'https://maliva-mcs.byteoversea.com/v1/user/webid'
+                self._browser.get(captcha_url)
                 input('Solve captcha and press enter!')
 
                 raise CaptchaException(
@@ -569,13 +568,14 @@ class TikTokApi:
             return m.group(1)
 
     def shutdown(self) -> None:
-        self._browser.close()
-        self._browser.quit()
+        try:
+            self._browser.close()
+        finally:
+            self._browser.quit()
 
     def __enter__(self):
-        with _thread_lock:
-            self._is_context_manager = True
-            return self
+        self._is_context_manager = True
+        return self
 
     def __exit__(self, type, value, traceback):
         self.shutdown()

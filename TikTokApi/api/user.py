@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import json
-
+import re
+import time
 from urllib.parse import quote, urlencode
+
+import seleniumwire
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 
 from ..exceptions import *
 from ..helpers import extract_tag_contents
@@ -125,47 +131,104 @@ class User:
             # do something
         ```
         """
-        processed = User.parent._process_kwargs(kwargs)
-        kwargs["custom_device_id"] = processed.device_id
 
-        if not self.user_id and not self.sec_uid:
-            self.__find_attributes()
+        driver = User.parent._browser
+
+        driver.get(f"https://www.tiktok.com/@{self.username}")
+
+        toks_delay = 10
+        CAPTCHA_WAIT = 999999
+
+        WebDriverWait(driver, toks_delay).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=user-post-item]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
+
+        if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
+            WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
 
         first = True
         amount_yielded = 0
+        searched_urls = []
+        # Get scroll height
+        last_height = driver.execute_script("return document.body.scrollHeight")
 
         while amount_yielded < count:
-            query = {
-                "count": 30,
-                "id": self.user_id,
-                "cursor": cursor,
-                "type": 1,
-                "secUid": self.sec_uid,
-                "sourceType": 8,
-                "appId": 1233,
-                "region": processed.region,
-                "priority_region": processed.region,
-                "language": processed.language,
-            }
-            path = "api/post/item_list/?{}&{}".format(
-                User.parent._add_url_params(), urlencode(query)
-            )
 
-            res = User.parent.get_data(path, send_tt_params=True, **kwargs)
+            if first:
+                path = f"@{self.username}"
+            else:
+                path = "api/post/item_list"
 
-            videos = res.get("itemList", [])
-            amount_yielded += len(videos)
-            for video in videos:
-                yield self.parent.video(data=video)
+            #WebDriverWait(driver, toks_delay).until_not(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=video-skeleton-container]')))
+            search_requests = [request for request in driver.requests if path in request.url and request.response is not None and request.url not in searched_urls]
+            for request in search_requests:
+                searched_urls.append(request.url)
+                body_bytes = seleniumwire.utils.decode(request.response.body, request.response.headers.get('Content-Encoding', 'identity'))
+                body = body_bytes.decode('utf-8')
 
-            if not res.get("hasMore", False) and not first:
-                User.parent.logger.info(
-                    "TikTok isn't sending more TikToks beyond this point."
-                )
-                return
+                if first:
+                    match = re.search('<script id="SIGI_STATE" type="application\/json">(.*?)<\/script>', body)
+                    
+                    if match:
+                        json_string = match.group(1)
+                        res = json.loads(json_string)
+                    else:
+                        raise Exception('Unrecognised formatting')
 
-            cursor = res["cursor"]
+                    videos = [val for key, val in res['ItemModule'].items()]
+                    for video in videos:
+                        video['createTime'] = int(video['createTime'])
+                        author_name = video['author']
+                        video['author'] = {
+                            "id": video["authorId"],
+                            "uniqueId": author_name,
+                            "nickname": video["nickname"],
+                            "avatarThumb": video["avatarThumb"],
+                            "signature": res["UserModule"]["users"][author_name]["signature"],
+                            "verified": res["UserModule"]["users"][author_name]["verified"],
+                            "secUid": video["authorSecId"],
+                            "secret": res["UserModule"]["users"][author_name]["secret"],
+                            "ftc": res["UserModule"]["users"][author_name]["ftc"],
+                            "relation": res["UserModule"]["users"][author_name]["relation"],
+                            "openFavorite": res["UserModule"]["users"][author_name]["openFavorite"],
+                            "commentSetting": res["UserModule"]["users"][author_name]["commentSetting"],
+                            "duetSetting": res["UserModule"]["users"][author_name]["duetSetting"],
+                            "stitchSetting": res["UserModule"]["users"][author_name]["stitchSetting"],
+                            "privateAccount": res["UserModule"]["users"][author_name]["privateAccount"]
+                        }
+
+                else:
+                    res = json.loads(body)
+                    if res.get('type') == 'verify':
+                        # this is the captcha denied response
+                        continue
+
+                    videos = res.get("itemList", [])
+
+                amount_yielded += len(videos)
+                for video in videos:
+                    yield self.parent.video(data=video)
+
+                if not res.get("hasMore", False) and not first:
+                    User.parent.logger.info(
+                        "TikTok isn't sending more TikToks beyond this point."
+                    )
+                    return
+
             first = False
+
+            # Scroll down to bottom
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+
+            time.sleep(toks_delay)
+
+            # Calculate new scroll height and compare with last scroll height
+            new_height = driver.execute_script("return document.body.scrollHeight")
+            if new_height == last_height:
+                break
+            last_height = new_height
+
+            if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
+                WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+
 
     def liked(self, count: int = 30, cursor: int = 0, **kwargs) -> Iterator[Video]:
         """

@@ -1,9 +1,7 @@
 from TikTokApi import TikTokApi
 import os
 
-username = "charlidamelio"
-user_id = "5831967"
-sec_uid = "MS4wLjABAAAA-VASjiXTh7wDDyXvjk10VFhMWUAoxr8bgfO1kAL1-9s"
+username = "brianjordanalvarez"
 
 
 def test_user_info():
@@ -16,18 +14,12 @@ def test_user_info():
 
 
 def test_user_videos():
-    with TikTokApi(custom_verify_fp=os.environ.get("verifyFp", None)) as api:
+    with TikTokApi() as api:
         count = 0
         for video in api.user(username=username).videos(count=100):
             count += 1
 
-        assert count >= 100
-
-        count = 0
-        for video in api.user(user_id=user_id, sec_uid=sec_uid).videos(count=100):
-            count += 1
-
-        assert count >= 100
+        assert count >= 120
 
 
 def test_user_liked():
@@ -39,3 +31,7 @@ def test_user_liked():
             count += 1
 
         assert count >= 1
+
+
+if __name__ == '__main__':
+    test_user_videos()

@@ -5,10 +5,12 @@ import re
 import time
 from urllib.parse import quote, urlencode
 
+import requests
 import seleniumwire
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
 
 from ..exceptions import *
 from ..helpers import extract_tag_contents
@@ -136,35 +138,33 @@ class User:
 
         driver.get(f"https://www.tiktok.com/@{self.username}")
 
-        toks_delay = 10
+        toks_delay = 20
         CAPTCHA_WAIT = 999999
 
         WebDriverWait(driver, toks_delay).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=user-post-item]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
 
         if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
             WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+            WebDriverWait(driver, toks_delay).until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=user-post-item]')))
 
-        first = True
+        request_num = 1
         amount_yielded = 0
         searched_urls = []
-        # Get scroll height
-        last_height = driver.execute_script("return document.body.scrollHeight")
 
         while amount_yielded < count:
 
-            if first:
+            if request_num == 1:
                 path = f"@{self.username}"
-            else:
+            elif request_num > 1:
                 path = "api/post/item_list"
 
-            #WebDriverWait(driver, toks_delay).until_not(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=video-skeleton-container]')))
             search_requests = [request for request in driver.requests if path in request.url and request.response is not None and request.url not in searched_urls]
             for request in search_requests:
                 searched_urls.append(request.url)
                 body_bytes = seleniumwire.utils.decode(request.response.body, request.response.headers.get('Content-Encoding', 'identity'))
                 body = body_bytes.decode('utf-8')
 
-                if first:
+                if request_num == 1:
                     match = re.search('<script id="SIGI_STATE" type="application\/json">(.*?)<\/script>', body)
                     
                     if match:
@@ -195,7 +195,7 @@ class User:
                             "privateAccount": res["UserModule"]["users"][author_name]["privateAccount"]
                         }
 
-                else:
+                elif request_num > 1:
                     res = json.loads(body)
                     if res.get('type') == 'verify':
                         # this is the captcha denied response
@@ -207,27 +207,29 @@ class User:
                 for video in videos:
                     yield self.parent.video(data=video)
 
-                if not res.get("hasMore", False) and not first:
+                if request_num == 1:
+                    has_more = res['ItemList']['user-post']['hasMore']
+                else:
+                    has_more = res.get("hasMore", False)
+
+                if not has_more:
                     User.parent.logger.info(
                         "TikTok isn't sending more TikToks beyond this point."
                     )
                     return
 
-            first = False
-
             # Scroll down to bottom
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
-            time.sleep(toks_delay)
+            try:
+                WebDriverWait(driver, toks_delay).until_not(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=video-skeleton-container]')))
+            except TimeoutException:
+                if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
+                    WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+                else:
+                    raise
 
-            # Calculate new scroll height and compare with last scroll height
-            new_height = driver.execute_script("return document.body.scrollHeight")
-            if new_height == last_height:
-                break
-            last_height = new_height
-
-            if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
-                WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+            request_num += 1
 
 
     def liked(self, count: int = 30, cursor: int = 0, **kwargs) -> Iterator[Video]:

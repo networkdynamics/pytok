@@ -570,6 +570,8 @@ class TikTokApi:
     def shutdown(self) -> None:
         try:
             self._browser.close()
+        except Exception:
+            pass
         finally:
             self._browser.quit()
 

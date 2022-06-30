@@ -3,8 +3,17 @@ import logging
 
 from urllib.parse import urlencode
 from ..exceptions import *
+import re
+import json
+import time
 
 from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
+
+import requests
+import seleniumwire
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 
 if TYPE_CHECKING:
     from ..tiktok import TikTokApi
@@ -96,28 +105,37 @@ class Hashtag:
             # do something
         ```
         """
-        processed = self.parent._process_kwargs(kwargs)
-        kwargs["custom_device_id"] = processed.device_id
+        driver = Hashtag.parent._browser
 
-        if self.id is None:
-            self.id = self.info()["id"]
+        driver.get(f"https://www.tiktok.com/tag/{self.name}")
 
-        cursor = offset
-        page_size = 30
+        toks_delay = 10
+        CAPTCHA_WAIT = 999999
 
-        while cursor - offset < count:
-            query = {
-                "count": page_size,
-                "challengeID": self.id,
-                "cursor": cursor,
-            }
-            path = "api/challenge/item_list/?{}&{}".format(
-                self.parent._add_url_params(), urlencode(query)
-            )
-            res = self.parent.get_data(path, **kwargs)
+        WebDriverWait(driver, toks_delay).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=challenge-item]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
 
-            for result in res.get("itemList", []):
-                yield self.parent.video(data=result)
+        if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
+            WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+        
+        WebDriverWait(driver, toks_delay).until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=challenge-item]')))
+
+        amount_yielded = 0
+
+        path = "api/challenge/item_list"
+        request = [request for request in driver.requests if path in request.url and request.response is not None][-1]
+
+        body_bytes = seleniumwire.utils.decode(request.response.body, request.response.headers.get('Content-Encoding', 'identity'))
+        body = body_bytes.decode('utf-8')
+
+        res = json.loads(body)
+
+        while amount_yielded < count:
+            
+            videos = res.get("itemList", [])
+
+            amount_yielded += len(videos)
+            for video in videos:
+                yield self.parent.video(data=video)
 
             if not res.get("hasMore", False):
                 self.parent.logger.info(
@@ -125,7 +143,17 @@ class Hashtag:
                 )
                 return
 
-            cursor = int(res["cursor"])
+            cursor = res["cursor"]
+            next_url = re.sub("cursor=([0-9]+)", f"cursor={cursor}", request.url)
+
+            r = requests.get(next_url, headers=request.headers)
+            res = r.json()
+
+            if res.get('type') == 'verify':
+                if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
+                    WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+                else:
+                    raise TikTokException("Captcha requested but not found in browser")
 
     def __extract_from_data(self):
         data = self.as_dict

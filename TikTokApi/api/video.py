@@ -174,7 +174,7 @@ class Video(Base):
                 return
 
             has_more = res.get("has_more")
-            if has_more == 0:
+            if has_more != 1:
                 self.parent.logger.info(
                     "TikTok isn't sending more TikToks beyond this point."
                 )
@@ -197,7 +197,7 @@ class Video(Base):
             yield from comments
 
             has_more = res.get("has_more")
-            if has_more == 0:
+            if has_more != 1:
                 self.parent.logger.info(
                     "TikTok isn't sending more TikToks beyond this point."
                 )

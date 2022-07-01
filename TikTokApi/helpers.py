@@ -20,9 +20,10 @@ def extract_tag_contents(html):
         )[1].split("</script>")[0]
         return j_raw
     else:
-        sigi_json = re.search(
-            r'>\s*window\[[\'"]SIGI_STATE[\'"]\]\s*=\s*(?P<sigi_state>{.+});', html
-        )
+        sigi_json = re.search('<script id="SIGI_STATE" type="application\/json">(.*?)<\/script>', html)
+        #sigi_json = re.search(
+            #r'>\s*window\[[\'"]SIGI_STATE[\'"]\]\s*=\s*(?P<sigi_state>{.+});', html
+        #)
         if sigi_json:
             return sigi_json.group(1)
         else:

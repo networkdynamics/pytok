@@ -4,6 +4,10 @@ from urllib.parse import urlencode
 from ..helpers import extract_video_id_from_url
 from typing import TYPE_CHECKING, ClassVar, Optional
 from datetime import datetime
+import re
+import json
+
+import requests
 
 if TYPE_CHECKING:
     from ..tiktok import TikTokApi
@@ -11,8 +15,11 @@ if TYPE_CHECKING:
     from .sound import Sound
     from .hashtag import Hashtag
 
+from .base import Base
+from ..helpers import extract_tag_contents
 
-class Video:
+
+class Video(Base):
     """
     A TikTok Video class
 
@@ -42,6 +49,7 @@ class Video:
     def __init__(
         self,
         id: Optional[str] = None,
+        username: Optional[str] = None,
         url: Optional[str] = None,
         data: Optional[dict] = None,
     ):
@@ -49,6 +57,7 @@ class Video:
         You must provide the id or a valid url, else this will fail.
         """
         self.id = id
+        self.username = username
         if data is not None:
             self.as_dict = data
             self.__extract_from_data()
@@ -111,6 +120,90 @@ class Video:
         download_url = video_data["video"]["playAddr"]
 
         return self.parent.get_bytes(url=download_url, **kwargs)
+
+    def comments(self, count=20):
+        driver = self.parent._browser
+
+        driver.get(f"https://www.tiktok.com/@{self.username}/video/{self.id}")
+
+        toks_delay = 20
+        CAPTCHA_WAIT = 999999
+
+        self.wait_for_content_or_captcha('comment-level-1')
+
+        # get initial html data
+        html_request_path = f"@{self.username}/video/{self.id}"
+        initial_html_request = self.get_requests(html_request_path)[0]
+        html_body = self.get_response_body(initial_html_request)
+        contents = extract_tag_contents(html_body)
+        res = json.loads(contents)
+
+        comments = [val for key, val in res['CommentItem'].items()]
+
+        amount_yielded = len(comments)
+        yield from comments
+
+        if amount_yielded >= count:
+            return
+
+        has_more = res['Comment']['hasMore']
+        if not has_more:
+            self.parent.logger.info(
+                "TikTok isn't sending more TikToks beyond this point."
+            )
+            return
+
+        data_request_path = "api/comment/list"
+        while len(self.get_requests(data_request_path)) == 0:
+            # scroll down to induce request
+            self.scroll_to_bottom()
+
+        # get request
+        data_requests = self.get_requests(data_request_path)
+
+        for data_request in data_requests:
+            res_body = self.get_response_body(data_request)
+
+            res = json.loads(res_body)
+            comments = res.get("comments", [])
+
+            amount_yielded += len(comments)
+            yield from comments
+
+            if amount_yielded > count:
+                return
+
+            has_more = res.get("has_more")
+            if has_more == 0:
+                self.parent.logger.info(
+                    "TikTok isn't sending more TikToks beyond this point."
+                )
+                return
+
+        while amount_yielded < count:
+            
+            cursor = res["cursor"]
+            next_url = re.sub("cursor=([0-9]+)", f"cursor={cursor}", data_request.url)
+
+            r = requests.get(next_url, headers=data_request.headers)
+            res = r.json()
+
+            if res.get('type') == 'verify':
+                self.check_and_wait_for_captcha()
+
+            comments = res.get("comments", [])
+
+            amount_yielded += len(comments)
+            yield from comments
+
+            has_more = res.get("has_more")
+            if has_more == 0:
+                self.parent.logger.info(
+                    "TikTok isn't sending more TikToks beyond this point."
+                )
+                return
+
+            
 
     def __extract_from_data(self) -> None:
         data = self.as_dict

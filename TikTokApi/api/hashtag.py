@@ -105,7 +105,7 @@ class Hashtag:
             # do something
         ```
         """
-        driver = Hashtag.parent._browser
+        driver = self.parent._browser
 
         driver.get(f"https://www.tiktok.com/tag/{self.name}")
 

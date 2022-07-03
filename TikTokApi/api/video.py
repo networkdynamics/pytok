@@ -193,8 +193,9 @@ class Video(Base):
 
             comments = res.get("comments", [])
 
-            amount_yielded += len(comments)
-            yield from comments
+            if comments:
+                amount_yielded += len(comments)
+                yield from comments
 
             has_more = res.get("has_more")
             if has_more != 1:
@@ -203,7 +204,7 @@ class Video(Base):
                 )
                 return
 
-            
+            self.parent.request_delay()
 
     def __extract_from_data(self) -> None:
         data = self.as_dict

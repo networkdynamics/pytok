@@ -138,7 +138,7 @@ class User:
 
         driver.get(f"https://www.tiktok.com/@{self.username}")
 
-        toks_delay = 20
+        toks_delay = 30
         CAPTCHA_WAIT = 999999
 
         WebDriverWait(driver, toks_delay).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=user-post-item]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
@@ -230,6 +230,8 @@ class User:
                     raise
 
             request_num += 1
+
+            self.parent.request_delay()
 
 
     def liked(self, count: int = 30, cursor: int = 0, **kwargs) -> Iterator[Video]:

@@ -155,6 +155,8 @@ class Hashtag:
                 else:
                     raise TikTokException("Captcha requested but not found in browser")
 
+            self.parent.request_delay()
+
     def __extract_from_data(self):
         data = self.as_dict
         keys = data.keys()

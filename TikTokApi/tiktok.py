@@ -11,6 +11,7 @@ from typing import ClassVar, Optional
 from urllib import request
 from urllib.parse import quote, urlencode
 
+from selenium import webdriver
 import seleniumwire.undetected_chromedriver as uc
 
 from .api.sound import Sound
@@ -157,8 +158,10 @@ class TikTokApi:
             )
 
         if self._signer_url is None:
-            
-            self._browser = uc.Chrome(version_main=102)
+            options = uc.ChromeOptions()
+            options.headless=True
+            options.add_argument('--headless')
+            self._browser = uc.Chrome(version_main=102, options=options)
 
             self._user_agent = self._browser.execute_script("return navigator.userAgent")
 
@@ -185,6 +188,10 @@ class TikTokApi:
             raise e from e
 
 
+    def request_delay(self):
+        if self._request_delay is not None:
+            time.sleep(self._request_delay)
+
     def get_data(self, path, subdomain="m", **kwargs) -> dict:
         """Makes requests to TikTok and returns their JSON.
 
@@ -193,8 +200,8 @@ class TikTokApi:
         """
         processed = self._process_kwargs(kwargs)
         kwargs["custom_device_id"] = processed.device_id
-        if self._request_delay is not None:
-            time.sleep(self._request_delay)
+        
+        self.request_delay()
 
         if self._proxy is not None:
             proxy = self._proxy

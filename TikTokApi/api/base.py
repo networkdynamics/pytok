@@ -7,7 +7,7 @@ from selenium.common.exceptions import TimeoutException
 
 from ..exceptions import *
 
-TOK_DELAY = 20
+TOK_DELAY = 30
 CAPTCHA_DELAY = 999999
 
 class Base:

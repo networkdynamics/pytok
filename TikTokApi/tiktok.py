@@ -159,8 +159,9 @@ class TikTokApi:
 
         if self._signer_url is None:
             options = uc.ChromeOptions()
-            options.headless=True
-            options.add_argument('--headless')
+            if kwargs.get('headless', False):
+                options.headless=True
+                options.add_argument('--headless')
             self._browser = uc.Chrome(version_main=102, options=options)
 
             self._user_agent = self._browser.execute_script("return navigator.userAgent")

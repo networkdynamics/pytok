@@ -19,8 +19,10 @@ if TYPE_CHECKING:
     from ..tiktok import TikTokApi
     from .video import Video
 
+from .base import Base
 
-class Hashtag:
+
+class Hashtag(Base):
     """
     A TikTok Hashtag/Challenge.
 
@@ -109,23 +111,13 @@ class Hashtag:
 
         driver.get(f"https://www.tiktok.com/tag/{self.name}")
 
-        toks_delay = 10
-        CAPTCHA_WAIT = 999999
-
-        WebDriverWait(driver, toks_delay).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=challenge-item]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
-
-        if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
-            WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
-        
-        WebDriverWait(driver, toks_delay).until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=challenge-item]')))
+        self.wait_for_content_or_captcha('challenge-item')
 
         amount_yielded = 0
 
         path = "api/challenge/item_list"
-        request = [request for request in driver.requests if path in request.url and request.response is not None][-1]
-
-        body_bytes = seleniumwire.utils.decode(request.response.body, request.response.headers.get('Content-Encoding', 'identity'))
-        body = body_bytes.decode('utf-8')
+        request = self.get_requests(path)[-1]
+        body = self.get_response_body(request)
 
         res = json.loads(body)
 
@@ -150,10 +142,7 @@ class Hashtag:
             res = r.json()
 
             if res.get('type') == 'verify':
-                if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
-                    WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
-                else:
-                    raise TikTokException("Captcha requested but not found in browser")
+                self.check_and_wait_for_captcha()
 
             self.parent.request_delay()
 

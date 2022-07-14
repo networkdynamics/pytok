@@ -44,5 +44,3 @@ class Base:
         driver = self.parent._browser
         if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
             WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
-        else:
-            raise TikTokException("Captcha requested but not found in browser")

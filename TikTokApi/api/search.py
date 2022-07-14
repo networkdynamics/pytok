@@ -14,6 +14,7 @@ from .user import User
 from .sound import Sound
 from .hashtag import Hashtag
 from .video import Video
+from .base import Base
 from ..exceptions import *
 
 if TYPE_CHECKING:
@@ -21,13 +22,15 @@ if TYPE_CHECKING:
 
 
 
-class Search:
+class Search(Base):
     """Contains static methods about searching."""
 
     parent: TikTokApi
 
-    @staticmethod
-    def videos(search_term, count=28, offset=0, **kwargs) -> Iterator[Video]:
+    def __init__(self, search_term):
+        self.search_term = search_term
+
+    def videos(self, count=28, offset=0, **kwargs) -> Iterator[Video]:
         """
         Searches for Videos
 
@@ -42,12 +45,11 @@ class Search:
             # do something
         ```
         """
-        return Search.search_type(
-            search_term, "item", count=count, offset=offset, **kwargs
+        return self.search_type(
+            "item", count=count, offset=offset, **kwargs
         )
 
-    @staticmethod
-    def users(search_term, count=28, offset=0, **kwargs) -> Iterator[User]:
+    def users(self, count=28, offset=0, **kwargs) -> Iterator[User]:
         """
         Searches for users using an alternate endpoint than Search.users
 
@@ -61,12 +63,11 @@ class Search:
             # do something
         ```
         """
-        return Search.search_type(
-            search_term, "user", count=count, offset=offset, **kwargs
+        return self.search_type(
+            "user", count=count, offset=offset, **kwargs
         )
 
-    @staticmethod
-    def search_type(search_term, obj_type, count=28, offset=0, **kwargs) -> Iterator:
+    def search_type(self, obj_type, count=28, offset=0, **kwargs) -> Iterator:
         """
         Searches for users using an alternate endpoint than Search.users
 
@@ -90,7 +91,7 @@ class Search:
 
         driver = Search.parent._browser
 
-        driver.get(f"https://{subdomain}.tiktok.com/search/{subpath}?q={search_term}")
+        driver.get(f"https://{subdomain}.tiktok.com/search/{subpath}?q={self.search_term}")
 
         toks_delay = 10
         CAPTCHA_WAIT = 999999
@@ -135,10 +136,11 @@ class Search:
 
             #vid_results = driver.find_element(by=By.CSS_SELECTOR, value="[data-e2e=search_video-item-list]")
 
+            self.check_and_wait_for_captcha()
+
             load_more_button = driver.find_element(by=By.CSS_SELECTOR, value="[data-e2e=search-load-more]")
             load_more_button.click()
             time.sleep(toks_delay)
 
-            if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
-                WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+            self.check_and_wait_for_captcha()
 

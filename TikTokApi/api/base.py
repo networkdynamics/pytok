@@ -7,18 +7,23 @@ from selenium.common.exceptions import TimeoutException
 
 from ..exceptions import *
 
-TOK_DELAY = 20
+TOK_DELAY = 30
 CAPTCHA_DELAY = 999999
 
 class Base:
 
     def wait_for_content_or_captcha(self, content_tag):
         driver = self.parent._browser
-        WebDriverWait(driver, TOK_DELAY).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
+        element = WebDriverWait(driver, TOK_DELAY).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
 
         if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
             WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
-            WebDriverWait(driver, TOK_DELAY).until(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')))
+            element = WebDriverWait(driver, TOK_DELAY).until(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')))
+
+        return element
+
+    def wait_for_requests(self, api_path):
+        self.parent._browser.wait_for_request(api_path, timeout=TOK_DELAY)
 
     def get_requests(self, api_path):
         return [request for request in self.parent._browser.requests if api_path in request.url and request.response is not None]
@@ -33,7 +38,7 @@ class Base:
     def wait_until_not_skeleton_or_captcha(self, skeleton_tag):
         driver = self.parent._browser
         try:
-            WebDriverWait(driver, TOK_DELAY).until_not(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=]')))
+            WebDriverWait(driver, TOK_DELAY).until_not(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={skeleton_tag}]')))
         except TimeoutException:
             if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
                 WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))

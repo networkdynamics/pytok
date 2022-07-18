@@ -21,8 +21,10 @@ if TYPE_CHECKING:
     from ..tiktok import TikTokApi
     from .video import Video
 
+from .base import Base
 
-class User:
+
+class User(Base):
     """
     A TikTok User.
 
@@ -138,14 +140,7 @@ class User:
 
         driver.get(f"https://www.tiktok.com/@{self.username}")
 
-        toks_delay = 30
-        CAPTCHA_WAIT = 999999
-
-        WebDriverWait(driver, toks_delay).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=user-post-item]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
-
-        if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
-            WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
-            WebDriverWait(driver, toks_delay).until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=user-post-item]')))
+        self.wait_for_content_or_captcha('user-post-item')
 
         request_num = 1
         amount_yielded = 0
@@ -158,20 +153,14 @@ class User:
             elif request_num > 1:
                 path = "api/post/item_list"
 
-            search_requests = [request for request in driver.requests if path in request.url and request.response is not None and request.url not in searched_urls]
+            search_requests = self.get_requests(path)
             for request in search_requests:
                 searched_urls.append(request.url)
-                body_bytes = seleniumwire.utils.decode(request.response.body, request.response.headers.get('Content-Encoding', 'identity'))
-                body = body_bytes.decode('utf-8')
+                body = self.get_response_body(request)
 
                 if request_num == 1:
-                    match = re.search('<script id="SIGI_STATE" type="application\/json">(.*?)<\/script>', body)
-                    
-                    if match:
-                        json_string = match.group(1)
-                        res = json.loads(json_string)
-                    else:
-                        raise Exception('Unrecognised formatting')
+                    tag_contents = extract_tag_contents(body)
+                    res = json.loads(tag_contents)
 
                     videos = [val for key, val in res['ItemModule'].items()]
                     for video in videos:
@@ -219,15 +208,8 @@ class User:
                     return
 
             # Scroll down to bottom
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-
-            try:
-                WebDriverWait(driver, toks_delay).until_not(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=video-skeleton-container]')))
-            except TimeoutException:
-                if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
-                    WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
-                else:
-                    raise
+            self.scroll_to_bottom()
+            self.wait_until_not_skeleton_or_captcha('video-skeleton-container')
 
             request_num += 1
 

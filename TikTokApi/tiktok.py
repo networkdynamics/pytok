@@ -135,6 +135,8 @@ class TikTokApi:
         Video.parent = self
         Trending.parent = self
 
+        self.request_cache = {}
+
         # Some Instance Vars
         self._executable_path = kwargs.get("executable_path", None)
 
@@ -187,6 +189,7 @@ class TikTokApi:
             self._region = "US"
             self._language = "en"
             raise e from e
+
 
 
     def request_delay(self):

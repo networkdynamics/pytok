@@ -22,6 +22,21 @@ class Base:
 
         return element
 
+    def wait_for_content_or_unavailable_or_captcha(self, content_tag, unavailable_text):
+        driver = self.parent._browser
+        element = WebDriverWait(driver, TOK_DELAY).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')), 
+                                                                   EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')),
+                                                                   EC.presence_of_element_located((By.CSS_SELECTOR, f'[innerText={unavailable_text}'))))
+
+        if driver.find_elements(By.CSS_SELECTOR, f'[innerText={unavailable_text}'):
+            raise NotAvailableException()
+
+        if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
+            WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+            element = WebDriverWait(driver, TOK_DELAY).until(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')))
+
+        return element
+
     def wait_for_requests(self, api_path):
         self.parent._browser.wait_for_request(api_path, timeout=TOK_DELAY)
 

@@ -126,7 +126,7 @@ class Video(Base):
         driver = self.parent._browser
         driver.get(f"https://www.tiktok.com/@{self.username}/video/{self.id}")
 
-        self.wait_for_content_or_captcha('comment-level-1')
+        self.wait_for_content_or_unavailable_or_captcha('comment-level-1', 'Video currently unavailable')
 
         # get initial html data
         html_request_path = f"@{self.username}/video/{self.id}"

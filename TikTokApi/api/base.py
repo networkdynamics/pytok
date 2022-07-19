@@ -26,9 +26,9 @@ class Base:
         driver = self.parent._browser
         element = WebDriverWait(driver, TOK_DELAY).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')), 
                                                                    EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')),
-                                                                   EC.presence_of_element_located((By.CSS_SELECTOR, f'[innerText={unavailable_text}'))))
+                                                                   EC.presence_of_element_located((By.XPATH, f"//*[contains(text(), '{unavailable_text}')]"))))
 
-        if driver.find_elements(By.CSS_SELECTOR, f'[innerText={unavailable_text}'):
+        if driver.find_elements(By.XPATH, f"//*[contains(text(), '{unavailable_text}')]"):
             raise NotAvailableException()
 
         if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):

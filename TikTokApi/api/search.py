@@ -4,30 +4,29 @@ import json
 import time
 from typing import TYPE_CHECKING, Iterator, Type
 from urllib.parse import urlencode
-
-import seleniumwire
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
+import re
 
 from .user import User
-from .sound import Sound
 from .hashtag import Hashtag
 from .video import Video
+from .base import Base
 from ..exceptions import *
 
 if TYPE_CHECKING:
     from ..tiktok import TikTokApi
 
+import requests
+from selenium.common.exceptions import TimeoutException
 
-
-class Search:
+class Search(Base):
     """Contains static methods about searching."""
 
     parent: TikTokApi
 
-    @staticmethod
-    def videos(search_term, count=28, offset=0, **kwargs) -> Iterator[Video]:
+    def __init__(self, search_term):
+        self.search_term = search_term
+
+    def videos(self, count=28, offset=0, **kwargs) -> Iterator[Video]:
         """
         Searches for Videos
 
@@ -42,12 +41,11 @@ class Search:
             # do something
         ```
         """
-        return Search.search_type(
-            search_term, "item", count=count, offset=offset, **kwargs
+        return self.search_type(
+            "item", count=count, offset=offset, **kwargs
         )
 
-    @staticmethod
-    def users(search_term, count=28, offset=0, **kwargs) -> Iterator[User]:
+    def users(self, count=28, offset=0, **kwargs) -> Iterator[User]:
         """
         Searches for users using an alternate endpoint than Search.users
 
@@ -61,12 +59,11 @@ class Search:
             # do something
         ```
         """
-        return Search.search_type(
-            search_term, "user", count=count, offset=offset, **kwargs
+        return self.search_type(
+            "user", count=count, offset=offset, **kwargs
         )
 
-    @staticmethod
-    def search_type(search_term, obj_type, count=28, offset=0, **kwargs) -> Iterator:
+    def search_type(self, obj_type, count=28, offset=0, **kwargs) -> Iterator:
         """
         Searches for users using an alternate endpoint than Search.users
 
@@ -90,55 +87,79 @@ class Search:
 
         driver = Search.parent._browser
 
-        driver.get(f"https://{subdomain}.tiktok.com/search/{subpath}?q={search_term}")
+        driver.get(f"https://{subdomain}.tiktok.com/search/{subpath}?q={self.search_term}")
 
-        toks_delay = 10
-        CAPTCHA_WAIT = 999999
-
-        WebDriverWait(driver, toks_delay).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=search_video-item]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
-
-        if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
-            WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+        self.wait_for_content_or_captcha('search_video-item')
 
         processed_urls = []
         num_fetched = 0
-        while num_fetched < count:
+        pull_method = 'browser'
+        
+        path = f"api/search/{obj_type}"
 
-            path = f"api/search/{obj_type}"
-            WebDriverWait(driver, toks_delay).until_not(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e=video-skeleton-container]')))
-            search_requests = [request for request in driver.requests if path in request.url and request.response is not None and request.url not in processed_urls]
-            for request in search_requests:
-                processed_urls.append(request.url)
-                body_bytes = seleniumwire.utils.decode(request.response.body, request.response.headers.get('Content-Encoding', 'identity'))
-                body = body_bytes.decode('utf-8')
-                api_response = json.loads(body)
-                if api_response.get('type') == 'verify':
-                    # this is the captcha denied response
+        while num_fetched < count:
+            self.parent.request_delay()
+
+            if pull_method == 'browser':
+                search_requests = self.get_requests(path)
+                for request in search_requests:
+                    processed_urls.append(request.url)
+                    body = self.get_response_body(request)
+                    res = json.loads(body)
+                    if res.get('type') == 'verify':
+                        # this is the captcha denied response
+                        continue
+
+                    # When I move to 3.10+ support make this a match switch.
+                    if obj_type == "user":
+                        for result in res.get("user_list", []):
+                            yield User(data=result)
+                            num_fetched += 1
+
+                    if obj_type == "item":
+                        for result in res.get("item_list", []):
+                            yield Video(data=result)
+                            num_fetched += 1
+
+                    if res.get("has_more", 0) == 0:
+                        Search.parent.logger.info(
+                            "TikTok is not sending videos beyond this point."
+                        )
+                        return
+
+                try:
+                    load_more_button = self.wait_for_content_or_captcha('search-load-more')
+                except TimeoutException:
+                    return
+
+                load_more_button.click()
+
+                self.wait_until_not_skeleton_or_captcha('video-skeleton-container')
+
+            
+            elif pull_method == 'requests':
+                cursor = res["cursor"]
+                next_url = re.sub("offset=([0-9]+)", f"offset={cursor}", request.url)
+
+                r = requests.get(next_url, headers=request.headers)
+                res = r.json()
+
+                if res.get('type') == 'verify':
+                    pull_method = 'browser'
                     continue
 
-                # When I move to 3.10+ support make this a match switch.
                 if obj_type == "user":
-                    for result in api_response.get("user_list", []):
+                    for result in res.get("user_list", []):
                         yield User(data=result)
                         num_fetched += 1
 
                 if obj_type == "item":
-                    for result in api_response.get("item_list", []):
+                    for result in res.get("item_list", []):
                         yield Video(data=result)
                         num_fetched += 1
 
-                if api_response.get("has_more", 0) == 0:
-                    Search.parent.logger.info(
+                if res.get("has_more", 0) == 0:
+                    self.parent.logger.info(
                         "TikTok is not sending videos beyond this point."
                     )
                     return
-
-            #vid_results = driver.find_element(by=By.CSS_SELECTOR, value="[data-e2e=search_video-item-list]")
-
-            load_more_button = driver.find_element(by=By.CSS_SELECTOR, value="[data-e2e=search-load-more]")
-            load_more_button.click()
-            time.sleep(toks_delay)
-
-            if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
-                WebDriverWait(driver, CAPTCHA_WAIT).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
-

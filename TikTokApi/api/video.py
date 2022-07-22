@@ -121,15 +121,12 @@ class Video(Base):
 
         return self.parent.get_bytes(url=download_url, **kwargs)
 
-    def comments(self, count=20):
-        driver = self.parent._browser
+    def _get_comments_and_req(self, count):
 
+        driver = self.parent._browser
         driver.get(f"https://www.tiktok.com/@{self.username}/video/{self.id}")
 
-        toks_delay = 20
-        CAPTCHA_WAIT = 999999
-
-        self.wait_for_content_or_captcha('comment-level-1')
+        self.wait_for_content_or_unavailable_or_captcha('comment-level-1', 'Video currently unavailable')
 
         # get initial html data
         html_request_path = f"@{self.username}/video/{self.id}"
@@ -138,25 +135,29 @@ class Video(Base):
         contents = extract_tag_contents(html_body)
         res = json.loads(contents)
 
-        comments = [val for key, val in res['CommentItem'].items()]
+        comments = list(res['CommentItem'].values())
+
+        comment_users = res['UserModule']['users']
+        for comment in comments:
+            comment['user'] = comment_users[comment['user']]
 
         amount_yielded = len(comments)
-        yield from comments
+        all_comments = comments
 
         if amount_yielded >= count:
-            return
+            return all_comments, True
 
         has_more = res['Comment']['hasMore']
         if not has_more:
             self.parent.logger.info(
                 "TikTok isn't sending more TikToks beyond this point."
             )
-            return
+            return all_comments, True
 
         data_request_path = "api/comment/list"
-        while len(self.get_requests(data_request_path)) == 0:
-            # scroll down to induce request
-            self.scroll_to_bottom()
+        # scroll down to induce request
+        self.scroll_to_bottom()
+        self.wait_for_requests(data_request_path)
 
         # get request
         data_requests = self.get_requests(data_request_path)
@@ -168,28 +169,48 @@ class Video(Base):
             comments = res.get("comments", [])
 
             amount_yielded += len(comments)
-            yield from comments
+            all_comments += comments
 
             if amount_yielded > count:
-                return
+                return all_comments, True
 
             has_more = res.get("has_more")
             if has_more != 1:
                 self.parent.logger.info(
                     "TikTok isn't sending more TikToks beyond this point."
                 )
+                return all_comments, True
+
+        self.parent.request_cache['comments'] = data_request
+
+        return all_comments, False
+
+    def comments(self, count=20):
+
+        amount_yielded = 0
+        if 'comments' not in self.parent.request_cache:
+            all_comments, finished = self._get_comments_and_req(count)
+            amount_yielded += len(all_comments)
+            yield from all_comments
+
+            if finished:
                 return
 
+        data_request = self.parent.request_cache['comments']
+
+        batch_size = 100
         while amount_yielded < count:
             
-            cursor = res["cursor"]
-            next_url = re.sub("cursor=([0-9]+)", f"cursor={cursor}", data_request.url)
+            next_url = re.sub("cursor=([0-9]+)", f"cursor={amount_yielded}", data_request.url)
+            next_url = re.sub("aweme_id=([0-9]+)", f"aweme_id={self.id}", next_url)
+            next_url = re.sub("count=([0-9]+)", f"count={batch_size}", next_url)
 
             r = requests.get(next_url, headers=data_request.headers)
             res = r.json()
 
             if res.get('type') == 'verify':
-                self.check_and_wait_for_captcha()
+                # force new request for cache
+                self._get_comments_and_req()
 
             comments = res.get("comments", [])
 

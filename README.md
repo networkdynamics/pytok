@@ -15,7 +15,7 @@ from TikTokApi import TikTokApi
 
 # Watch https://www.youtube.com/watch?v=-uCt1x8kINQ for a brief setup tutorial
 with TikTokApi() as api:
-    for trending_video in api.trending.videos(count=50):
-        # Prints the author's username of the trending video.
-        print(trending_video.author.username)
+    for video in api.hashtag(name=hashtag).videos(count=100):
+        # print the info of the top 100 videos for this hashtag
+        print(video.info())
 ```

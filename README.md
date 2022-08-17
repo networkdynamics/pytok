@@ -8,7 +8,7 @@ It's currently in a messy half way point up being gutted and having its innards 
 
 ## Quick Start Guide
 
-Here's a quick bit of code to get the most recent trending videos on TikTok. There's more examples in the [examples](https://github.com/davidteather/TikTok-Api/tree/master/examples) directory.
+Here's a quick bit of code to get the most recent trending videos on TikTok. There's more examples in the [examples](https://github.com/networkdynamics/TikTok-Api/tree/master/examples) directory.
 
 ```py
 from TikTokApi import TikTokApi

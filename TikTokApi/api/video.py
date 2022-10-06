@@ -135,24 +135,28 @@ class Video(Base):
         contents = extract_tag_contents(html_body)
         res = json.loads(contents)
 
-        comments = list(res['CommentItem'].values())
+        if 'CommentItem' in res:
+            comments = list(res['CommentItem'].values())
 
-        comment_users = res['UserModule']['users']
-        for comment in comments:
-            comment['user'] = comment_users[comment['user']]
+            comment_users = res['UserModule']['users']
+            for comment in comments:
+                comment['user'] = comment_users[comment['user']]
 
-        amount_yielded = len(comments)
-        all_comments = comments
+            amount_yielded = len(comments)
+            all_comments = comments
 
-        if amount_yielded >= count:
-            return all_comments, True
+            if amount_yielded >= count:
+                return all_comments, True
 
-        has_more = res['Comment']['hasMore']
-        if not has_more:
-            self.parent.logger.info(
-                "TikTok isn't sending more TikToks beyond this point."
-            )
-            return all_comments, True
+            has_more = res['Comment']['hasMore']
+            if not has_more:
+                self.parent.logger.info(
+                    "TikTok isn't sending more TikToks beyond this point."
+                )
+                return all_comments, True
+        else:
+            amount_yielded = 0
+            all_comments = []
 
         data_request_path = "api/comment/list"
         # scroll down to induce request
@@ -185,11 +189,54 @@ class Video(Base):
 
         return all_comments, False
 
-    def comments(self, count=20):
+    def _get_comment_replies(self, comment, batch_size):
+        data_request = self.parent.request_cache['comments']
+        num_already_fetched = len(comment.get('reply_comment', []) if comment.get('reply_comment', []) is not None else [])
+        num_comments_to_fetch = comment['reply_comment_total'] - num_already_fetched
+        while num_comments_to_fetch > 0:
+            next_url = re.sub("cursor=([0-9]+)", f"cursor={num_already_fetched}", data_request.url)
+            next_url = re.sub("&aweme_id=([0-9]+)", '', next_url)
+            next_url = re.sub("count=([0-9]+)", f"count={min(num_comments_to_fetch, batch_size)}", next_url)
+            next_url = re.sub("api/comment/list/", "api/comment/list/reply/", next_url)
+            next_url = re.sub("focus_state=false", "focus_state=true", next_url)
+            next_url += f"&item_id={comment['aweme_id']}"
+            next_url += f"&comment_id={comment['cid']}"
+
+            r = requests.get(next_url, headers=data_request.headers)
+            res = r.json()
+
+            if res.get('type') == 'verify':
+                # force new request for cache
+                self._get_comments_and_req()
+
+            reply_comments = res.get("comments", [])
+
+            if reply_comments:
+                comment['reply_comment'] = comment['reply_comment'] + reply_comments if comment['reply_comment'] else reply_comments
+
+            has_more = res.get("has_more")
+            if has_more != 1:
+                self.parent.logger.info(
+                    "TikTok isn't sending more TikToks beyond this point."
+                )
+                break
+
+            self.parent.request_delay()
+
+            num_already_fetched = len(comment['reply_comment'])
+            num_comments_to_fetch = comment['reply_comment_total'] - num_already_fetched
+
+    def comments(self, count=200, batch_size=100):
+
+        # TODO allow multi layer comment fetch
 
         amount_yielded = 0
         if 'comments' not in self.parent.request_cache:
             all_comments, finished = self._get_comments_and_req(count)
+
+            for comment in all_comments:
+                self._get_comment_replies(comment, batch_size)
+
             amount_yielded += len(all_comments)
             yield from all_comments
 
@@ -198,7 +245,6 @@ class Video(Base):
 
         data_request = self.parent.request_cache['comments']
 
-        batch_size = 100
         while amount_yielded < count:
             
             next_url = re.sub("cursor=([0-9]+)", f"cursor={amount_yielded}", data_request.url)
@@ -213,6 +259,9 @@ class Video(Base):
                 self._get_comments_and_req()
 
             comments = res.get("comments", [])
+
+            for comment in comments:
+                self._get_comment_replies(comment, batch_size)
 
             if comments:
                 amount_yielded += len(comments)

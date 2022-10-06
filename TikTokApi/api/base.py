@@ -26,8 +26,7 @@ class Base:
         driver = self.parent._browser
         try:
             element = WebDriverWait(driver, TOK_DELAY).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')), 
-                                                                    EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')),
-                                                                    EC.presence_of_element_located((By.XPATH, f"//*[contains(text(), '{unavailable_text}')]"))))
+                                                                    EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
         except TimeoutException:
             if driver.find_elements(By.XPATH, f"//*[contains(text(), '{unavailable_text}')]"):
                 raise NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
@@ -41,7 +40,10 @@ class Base:
         return element
 
     def wait_for_requests(self, api_path):
-        self.parent._browser.wait_for_request(api_path, timeout=TOK_DELAY)
+        try:
+            self.parent._browser.wait_for_request(api_path, timeout=TOK_DELAY)
+        except Exception:
+            raise
 
     def get_requests(self, api_path):
         return [request for request in self.parent._browser.requests if api_path in request.url and request.response is not None]

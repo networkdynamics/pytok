@@ -109,7 +109,8 @@ class Hashtag(Base):
         """
         driver = self.parent._browser
 
-        driver.get(f"https://www.tiktok.com/tag/{self.name}")
+        url = f"https://www.tiktok.com/tag/{self.name}"
+        driver.get(url)
 
         self.wait_for_content_or_captcha('challenge-item')
 

@@ -4,12 +4,6 @@ from TikTokApi import TikTokApi
 
 videos = [
     {
-        'id': '7120221075807587630',
-        'author': {
-            'uniqueId': 'ed_toks1'
-        }
-    },
-    {
         'id': '7058106162235100462',
         'author': {
             'uniqueId': 'charlesmcbryde'

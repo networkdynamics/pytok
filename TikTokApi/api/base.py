@@ -12,6 +12,12 @@ CAPTCHA_DELAY = 999999
 
 class Base:
 
+    def check_initial_call(self, url):
+        self.wait_for_requests(url)
+        request = self.get_requests(url)[0]
+        if request.response.status_code >= 300:
+            raise NotAvailableException("Content is not available")
+
     def wait_for_content_or_captcha(self, content_tag):
         driver = self.parent._browser
         element = WebDriverWait(driver, TOK_DELAY).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))

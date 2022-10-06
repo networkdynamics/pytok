@@ -124,8 +124,9 @@ class Video(Base):
     def _get_comments_and_req(self, count):
 
         driver = self.parent._browser
-        driver.get(f"https://www.tiktok.com/@{self.username}/video/{self.id}")
-
+        url = f"https://www.tiktok.com/@{self.username}/video/{self.id}"
+        driver.get(url)
+        self.check_initial_call(url)
         self.wait_for_content_or_unavailable_or_captcha('comment-level-1', 'Video currently unavailable')
 
         # get initial html data

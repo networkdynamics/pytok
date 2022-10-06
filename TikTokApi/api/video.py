@@ -260,10 +260,10 @@ class Video(Base):
 
             comments = res.get("comments", [])
 
-            for comment in comments:
-                self._get_comment_replies(comment, batch_size)
-
             if comments:
+                for comment in comments:
+                    self._get_comment_replies(comment, batch_size)
+
                 amount_yielded += len(comments)
                 yield from comments
 

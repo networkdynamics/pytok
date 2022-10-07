@@ -87,7 +87,8 @@ class Search(Base):
 
         driver = Search.parent._browser
 
-        driver.get(f"https://{subdomain}.tiktok.com/search/{subpath}?q={self.search_term}")
+        url = f"https://{subdomain}.tiktok.com/search/{subpath}?q={self.search_term}"
+        driver.get(url)
 
         self.wait_for_content_or_captcha('search_video-item')
 

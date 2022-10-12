@@ -165,7 +165,6 @@ class TikTokApi:
                 options.headless=True
                 options.add_argument('--headless')
             self._browser = uc.Chrome(version_main=kwargs.get('chrome_version', 102), options=options)
-
             self._user_agent = self._browser.execute_script("return navigator.userAgent")
 
         try:

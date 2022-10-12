@@ -138,8 +138,9 @@ class User(Base):
 
         driver = User.parent._browser
 
-        driver.get(f"https://www.tiktok.com/@{self.username}")
-
+        url = f"https://www.tiktok.com/@{self.username}"
+        driver.get(url)
+        self.check_initial_call(url)
         self.wait_for_content_or_captcha('user-post-item')
 
         request_num = 1
@@ -164,25 +165,7 @@ class User(Base):
 
                     videos = [val for key, val in res['ItemModule'].items()]
                     for video in videos:
-                        video['createTime'] = int(video['createTime'])
-                        author_name = video['author']
-                        video['author'] = {
-                            "id": video["authorId"],
-                            "uniqueId": author_name,
-                            "nickname": video["nickname"],
-                            "avatarThumb": video["avatarThumb"],
-                            "signature": res["UserModule"]["users"][author_name]["signature"],
-                            "verified": res["UserModule"]["users"][author_name]["verified"],
-                            "secUid": video["authorSecId"],
-                            "secret": res["UserModule"]["users"][author_name]["secret"],
-                            "ftc": res["UserModule"]["users"][author_name]["ftc"],
-                            "relation": res["UserModule"]["users"][author_name]["relation"],
-                            "openFavorite": res["UserModule"]["users"][author_name]["openFavorite"],
-                            "commentSetting": res["UserModule"]["users"][author_name]["commentSetting"],
-                            "duetSetting": res["UserModule"]["users"][author_name]["duetSetting"],
-                            "stitchSetting": res["UserModule"]["users"][author_name]["stitchSetting"],
-                            "privateAccount": res["UserModule"]["users"][author_name]["privateAccount"]
-                        }
+                        video['author'] = res["UserModule"]["users"][video['author']]
 
                 elif request_num > 1:
                     res = json.loads(body)

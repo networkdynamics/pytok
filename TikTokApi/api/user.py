@@ -135,49 +135,6 @@ class User(Base):
             # do something
         ```
         """
-
-        amount_yielded = 0
-        if 'videos' not in self.parent.request_cache:
-            all_videos, finished = self._get_videos_and_req(count)
-
-            amount_yielded += len(all_videos)
-            yield from all_videos
-
-            if finished:
-                return
-
-        data_request = self.parent.request_cache['videos']
-
-        while amount_yielded < count:
-            
-            next_url = re.sub("cursor=([0-9]+)", f"cursor={amount_yielded}", data_request.url)
-            next_url = re.sub("aweme_id=([0-9]+)", f"aweme_id={self.id}", next_url)
-            next_url = re.sub("count=([0-9]+)", f"count={batch_size}", next_url)
-
-            r = requests.get(next_url, headers=data_request.headers)
-            res = r.json()
-
-            if res.get('type') == 'verify':
-                # force new request for cache
-                self._get_videos_and_req()
-
-            videos = res.get("videos", [])
-
-            if videos:
-                amount_yielded += len(videos)
-                yield from [self.parent.video(data=video) for video in videos]
-
-            has_more = res.get("has_more")
-            if has_more != 1:
-                self.parent.logger.info(
-                    "TikTok isn't sending more TikToks beyond this point."
-                )
-                return
-
-            self.parent.request_delay()
-
-
-    def _get_videos_and_req(self, count):
         driver = User.parent._browser
 
         url = f"https://www.tiktok.com/@{self.username}"
@@ -193,7 +150,6 @@ class User(Base):
         res = json.loads(tag_contents)
 
         amount_yielded = 0
-        all_videos = []
 
         if 'ItemModule' in res:
             videos = list(res['ItemModule'].values())
@@ -203,46 +159,49 @@ class User(Base):
                 video['author'] = video_users[video['author']]
 
             amount_yielded += len(videos)
-            all_videos += [self.parent.video(data=video) for video in videos]
+            yield from [self.parent.video(data=video) for video in videos]
 
             if amount_yielded >= count:
-                return all_videos, True
+                return
 
             has_more = res['ItemList']['user-post']['hasMore']
             if not has_more:
                 User.parent.logger.info(
                     "TikTok isn't sending more TikToks beyond this point."
                 )
-                return all_videos, True
+                return
+
 
         data_request_path = "api/post/item_list"
-        self.scroll_to_bottom()
-        self.wait_for_requests(data_request_path)
+        data_urls = []
+        while count > amount_yielded:
+            self.scroll_to_bottom()
+            self.wait_for_requests(data_request_path)
 
-        data_requests = self.get_requests(data_request_path)
+            data_requests = [req for req in self.get_requests(data_request_path) if req.url not in data_urls]
 
-        for data_request in data_requests:
-            res_body = self.get_response_body(data_request)
+            for data_request in data_requests:
+                data_urls.append(data_request.url)
+                res_body = self.get_response_body(data_request)
 
-            res = json.loads(res_body)
-            videos = res.get("itemList", [])
+                if not res_body:
+                    continue
 
-            amount_yielded += len(videos)
-            all_videos += [self.parent.video(data=video) for video in videos]
+                res = json.loads(res_body)
+                videos = res.get("itemList", [])
 
-            if amount_yielded >= count:
-                return all_videos, True
+                amount_yielded += len(videos)
+                yield from [self.parent.video(data=video) for video in videos]
 
-            has_more = res.get("hasMore", False)
-            if not has_more:
-                User.parent.logger.info(
-                    "TikTok isn't sending more TikToks beyond this point."
-                )
-                return all_videos, True
+                if amount_yielded >= count:
+                    return
 
-        self.parent.request_cache['videos'] = data_request
-
-        return all_videos, False
+                has_more = res.get("hasMore", False)
+                if not has_more:
+                    User.parent.logger.info(
+                        "TikTok isn't sending more TikToks beyond this point."
+                    )
+                    return
 
 
     def liked(self, count: int = 30, cursor: int = 0, **kwargs) -> Iterator[Video]:

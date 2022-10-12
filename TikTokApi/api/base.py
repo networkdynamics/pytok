@@ -48,7 +48,7 @@ class Base:
     def wait_for_requests(self, api_path):
         try:
             self.parent._browser.wait_for_request(api_path, timeout=TOK_DELAY)
-        except Exception:
+        except TimeoutException:
             raise
 
     def get_requests(self, api_path):

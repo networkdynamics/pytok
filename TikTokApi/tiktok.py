@@ -161,6 +161,7 @@ class TikTokApi:
 
         if self._signer_url is None:
             options = uc.ChromeOptions()
+            #options.page_load_strategy = 'eager'
             if kwargs.get('headless', False):
                 options.headless=True
                 options.add_argument('--headless')

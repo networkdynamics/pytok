@@ -136,6 +136,9 @@ class Video(Base):
         contents = extract_tag_contents(html_body)
         res = json.loads(contents)
 
+        amount_yielded = 0
+        all_comments = []
+
         if 'CommentItem' in res:
             comments = list(res['CommentItem'].values())
 
@@ -143,8 +146,8 @@ class Video(Base):
             for comment in comments:
                 comment['user'] = comment_users[comment['user']]
 
-            amount_yielded = len(comments)
-            all_comments = comments
+            amount_yielded += len(comments)
+            all_comments += comments
 
             if amount_yielded >= count:
                 return all_comments, True
@@ -155,9 +158,7 @@ class Video(Base):
                     "TikTok isn't sending more TikToks beyond this point."
                 )
                 return all_comments, True
-        else:
-            amount_yielded = 0
-            all_comments = []
+            
 
         data_request_path = "api/comment/list"
         # scroll down to induce request

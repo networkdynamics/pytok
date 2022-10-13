@@ -61,6 +61,9 @@ class Base:
     def scroll_to_bottom(self):
         self.parent._browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
+    def slight_scroll_up(self):
+        self.parent._browser.execute_script("window.scrollBy(0,-250);")
+
     def wait_until_not_skeleton_or_captcha(self, skeleton_tag):
         driver = self.parent._browser
         try:

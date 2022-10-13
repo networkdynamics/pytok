@@ -174,9 +174,21 @@ class User(Base):
 
         data_request_path = "api/post/item_list"
         data_urls = []
+        tries = 0
+        MAX_TRIES = 5
+
         while count > amount_yielded:
-            self.scroll_to_bottom()
-            self.wait_for_requests(data_request_path)
+            for _ in range(3):
+                self.slight_scroll_up()
+                self.scroll_to_bottom()
+                self.parent.request_delay()
+            try:
+                self.wait_for_requests(data_request_path)
+            except TimeoutException:
+                tries += 1
+                if tries >= MAX_TRIES:
+                    raise
+                continue
 
             data_requests = [req for req in self.get_requests(data_request_path) if req.url not in data_urls]
 

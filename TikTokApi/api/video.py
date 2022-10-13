@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from .hashtag import Hashtag
 
 from .base import Base
-from ..helpers import extract_tag_contents
+from ..helpers import extract_tag_contents, add_if_not_replace
 
 
 class Video(Base):
@@ -249,9 +249,9 @@ class Video(Base):
 
         while amount_yielded < count:
             
-            next_url = re.sub("cursor=([0-9]+)", f"cursor={amount_yielded}", data_request.url)
-            next_url = re.sub("aweme_id=([0-9]+)", f"aweme_id={self.id}", next_url)
-            next_url = re.sub("count=([0-9]+)", f"count={batch_size}", next_url)
+            next_url = add_if_not_replace(data_request.url, "cursor=([0-9]+)", f"cursor={amount_yielded}", f"&cursor={amount_yielded}")
+            next_url = add_if_not_replace(next_url, "aweme_id=([0-9]+)", f"aweme_id={self.id}", f"&aweme_id={self.id}")
+            next_url = add_if_not_replace(next_url, "count=([0-9]+)", f"count={batch_size}", f"&count={batch_size}")
 
             r = requests.get(next_url, headers=data_request.headers)
             res = r.json()

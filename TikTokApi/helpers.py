@@ -41,3 +41,11 @@ def extract_video_id_from_url(url):
             "URL format not supported. Below is an example of a supported url.\n"
             "https://www.tiktok.com/@therock/video/6829267836783971589"
         )
+
+def add_if_not_replace(text, pat, replace, add):
+    if re.search(pat, text):
+        return re.sub(pat, replace, text)
+    else:
+        text += add
+        return text
+

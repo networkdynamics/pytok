@@ -45,15 +45,9 @@ class TikTokApi:
     def __init__(
         self,
         logging_level: int = logging.WARNING,
-        request_delay: Optional[int] = None,
-        custom_device_id: Optional[str] = None,
-        generate_static_device_id: Optional[bool] = False,
-        custom_verify_fp: Optional[str] = None,
-        use_test_endpoints: Optional[bool] = False,
-        proxy: Optional[str] = None,
-        executable_path: Optional[str] = None,
-        *args,
-        **kwargs,
+        request_delay: Optional[int] = 0,
+        headless: Optional[bool] = False,
+        chrome_version: Optional[int] = 102
     ):
         """The TikTokApi class. Used to interact with TikTok. This is a singleton
             class to prevent issues from arising with playwright
@@ -112,21 +106,12 @@ class TikTokApi:
             in other places.
         """
 
+        self._headless = headless
+        self._chrome_version = chrome_version
+        self._request_delay = request_delay
+
         self.logger.setLevel(logging_level)
 
-        self._initialize(
-            request_delay=request_delay,
-            custom_device_id=custom_device_id,
-            generate_static_device_id=generate_static_device_id,
-            custom_verify_fp=custom_verify_fp,
-            use_test_endpoints=use_test_endpoints,
-            proxy=proxy,
-            executable_path=executable_path,
-            *args,
-            **kwargs,
-        )
-
-    def _initialize(self, **kwargs):
         # Add classes from the api folder
         User.parent = self
         Search.parent = self
@@ -137,60 +122,13 @@ class TikTokApi:
 
         self.request_cache = {}
 
-        # Some Instance Vars
-        self._executable_path = kwargs.get("executable_path", None)
-
-        if kwargs.get("custom_did") != None:
-            raise Exception("Please use 'custom_device_id' instead of 'custom_did'")
-        self._custom_device_id = kwargs.get("custom_device_id", None)
-        self._user_agent = "5.0 (iPhone; CPU iPhone OS 14_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1"
-        self._proxy = kwargs.get("proxy", None)
-        self._custom_verify_fp = kwargs.get("custom_verify_fp")
-        self._signer_url = kwargs.get("external_signer", None)
-        self._request_delay = kwargs.get("request_delay", None)
-        self._requests_extra_kwargs = kwargs.get("requests_extra_kwargs", {})
-
-        if kwargs.get("use_test_endpoints", False):
-            global BASE_URL
-            BASE_URL = "https://t.tiktok.com/"
-
-        if kwargs.get("generate_static_device_id", False):
-            self._custom_device_id = "".join(
-                random.choice(string.digits) for num in range(19)
-            )
-
-        if self._signer_url is None:
-            options = uc.ChromeOptions()
-            options.page_load_strategy = 'eager'
-            if kwargs.get('headless', False):
-                options.headless=True
-                options.add_argument('--headless')
-            self._browser = uc.Chrome(version_main=kwargs.get('chrome_version', 102), options=options)
-            self._user_agent = self._browser.execute_script("return navigator.userAgent")
-
-        try:
-            self._timezone_name = ""
-            self._browser_language = self._browser.execute_script("return window.navigator.userLanguage || window.navigator.language")
-            window_size = self._browser.get_window_size()
-            self._width = window_size['width']
-            self._height = window_size['height']
-            self._region = "US"
-            self._language = "en"
-        except Exception as e:
-            self.logger.exception(
-                "An error occurred while opening your browser, but it was ignored\n",
-                "Are you sure you ran python -m playwright install?",
-            )
-
-            self._timezone_name = ""
-            self._browser_language = ""
-            self._width = "1920"
-            self._height = "1080"
-            self._region = "US"
-            self._language = "en"
-            raise e from e
-
-
+        options = uc.ChromeOptions()
+        #options.page_load_strategy = 'eager'
+        if self._headless:
+            options.headless=True
+            options.add_argument('--headless')
+        self._browser = uc.Chrome(version_main=self._chrome_version, options=options)
+        self._user_agent = self._browser.execute_script("return navigator.userAgent")
 
     def request_delay(self):
         if self._request_delay is not None:

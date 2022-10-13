@@ -4,6 +4,7 @@ import json
 import re
 import time
 from urllib.parse import quote, urlencode
+from attr import has
 
 import requests
 import seleniumwire
@@ -13,7 +14,7 @@ from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException
 
 from ..exceptions import *
-from ..helpers import extract_tag_contents
+from ..helpers import extract_tag_contents, add_if_not_replace
 
 from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
 
@@ -135,6 +136,52 @@ class User(Base):
             # do something
         ```
         """
+        amount_yielded = 0
+        cursor = 0
+        final_cursor = 9999999999999999999999999999999
+
+        all_scraping = True
+        if all_scraping or 'videos' not in self.parent.request_cache:
+            all_videos, finished, final_cursor = self._get_videos_and_req(count, all_scraping)
+
+            amount_yielded += len(all_videos)
+            yield from all_videos
+
+            if finished:
+                return
+
+        data_request = self.parent.request_cache['videos']
+
+        while amount_yielded < count and cursor < final_cursor:
+            
+            next_url = add_if_not_replace(data_request.url, "id=([0-9]+)", f"id={self.user_id}", f"&id={self.user_id}")
+            next_url = add_if_not_replace(next_url, "secUid=([0-9]+)", f"secUid={self.sec_uid}", f"&secUid={self.sec_uid}")
+            next_url = add_if_not_replace(next_url, "cursor=([0-9]+)", f"cursor={cursor}", f"&cursor={cursor}")
+
+            r = requests.get(next_url, headers=data_request.headers)
+            res = r.json()
+
+            if res.get('type') == 'verify':
+                # force new request for cache
+                self._get_videos_and_req()
+
+            videos = res.get('itemList', [])
+            cursor = int(res['cursor'])
+
+            if videos:
+                amount_yielded += len(videos)
+                yield from [self.parent.video(data=video) for video in videos]
+
+            has_more = res.get("hasMore")
+            if not has_more:
+                self.parent.logger.info(
+                    "TikTok isn't sending more TikToks beyond this point."
+                )
+                return
+
+            self.parent.request_delay()
+
+    def _get_videos_and_req(self, count, all_scraping):
         driver = User.parent._browser
 
         url = f"https://www.tiktok.com/@{self.username}"
@@ -150,6 +197,7 @@ class User(Base):
         res = json.loads(tag_contents)
 
         amount_yielded = 0
+        all_videos = []
 
         if 'ItemModule' in res:
             videos = list(res['ItemModule'].values())
@@ -159,34 +207,36 @@ class User(Base):
                 video['author'] = video_users[video['author']]
 
             amount_yielded += len(videos)
-            yield from [self.parent.video(data=video) for video in videos]
+            all_videos += [self.parent.video(data=video) for video in videos]
 
             if amount_yielded >= count:
-                return
+                return all_videos, True, None
 
             has_more = res['ItemList']['user-post']['hasMore']
             if not has_more:
                 User.parent.logger.info(
                     "TikTok isn't sending more TikToks beyond this point."
                 )
-                return
+                return all_videos, True, None
 
 
         data_request_path = "api/post/item_list"
         data_urls = []
-        tries = 0
+        tries = 1
         MAX_TRIES = 5
 
-        while count > amount_yielded:
-            for _ in range(3):
+        valid_data_request = False
+        cursors = []
+        while all_scraping or not valid_data_request:
+            for _ in range(tries):
                 self.slight_scroll_up()
                 self.scroll_to_bottom()
                 self.parent.request_delay()
             try:
-                self.wait_for_requests(data_request_path)
+                self.wait_for_requests(data_request_path, timeout=tries*6)
             except TimeoutException:
                 tries += 1
-                if tries >= MAX_TRIES:
+                if tries > MAX_TRIES:
                     raise
                 continue
 
@@ -199,21 +249,27 @@ class User(Base):
                 if not res_body:
                     continue
 
+                valid_data_request = True
+                self.parent.request_cache['videos'] = data_request
+
                 res = json.loads(res_body)
                 videos = res.get("itemList", [])
+                cursors.append(int(res['cursor']))
 
                 amount_yielded += len(videos)
-                yield from [self.parent.video(data=video) for video in videos]
+                all_videos += [self.parent.video(data=video) for video in videos]
 
                 if amount_yielded >= count:
-                    return
+                    return all_videos, True, None
 
                 has_more = res.get("hasMore", False)
                 if not has_more:
                     User.parent.logger.info(
                         "TikTok isn't sending more TikToks beyond this point."
                     )
-                    return
+                    return all_videos, True, None
+
+        return all_videos, False, min(cursors)
 
 
     def liked(self, count: int = 30, cursor: int = 0, **kwargs) -> Iterator[Video]:

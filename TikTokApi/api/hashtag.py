@@ -61,7 +61,7 @@ class Hashtag(Base):
         """
         Returns TikTok's dictionary representation of the hashtag object.
         """
-        return self.info_full(**kwargs)["challengeInfo"]["challenge"]
+        raise NotImplementedError()
 
     def info_full(self, **kwargs) -> dict:
         """
@@ -72,27 +72,7 @@ class Hashtag(Base):
         hashtag_data = api.hashtag(name='funny').info_full()
         ```
         """
-        processed = self.parent._process_kwargs(kwargs)
-        kwargs["custom_device_id"] = processed.device_id
-
-        if self.name is not None:
-            query = {"challengeName": self.name}
-        elif self.id is not None:
-            query = {"challengeId": self.id}
-        else:
-            self.parent.logger.warning("Malformed Hashtag Object")
-            return {}
-
-        path = "api/challenge/detail/?{}&{}".format(
-            self.parent._add_url_params(), urlencode(query)
-        )
-
-        data = self.parent.get_data(path, **kwargs)
-
-        if data["challengeInfo"].get("challenge") is None:
-            raise NotFoundException("Challenge {} does not exist".format(self.name))
-
-        return data
+        raise NotImplementedError()
 
     def videos(self, count=30, offset=0, **kwargs) -> Iterator[Video]:
         """Returns a dictionary listing TikToks with a specific hashtag.

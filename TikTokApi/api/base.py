@@ -23,8 +23,11 @@ class Base:
         element = WebDriverWait(driver, TOK_DELAY).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
 
         if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
-            WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
-            element = WebDriverWait(driver, TOK_DELAY).until(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')))
+            if self.parent._headless:
+                raise CaptchaException('Captcha was thrown, re-run with headless=False and solve the captcha.')
+            else:
+                WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+                element = WebDriverWait(driver, TOK_DELAY).until(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')))
 
         return element
 
@@ -45,9 +48,9 @@ class Base:
 
         return element
 
-    def wait_for_requests(self, api_path):
+    def wait_for_requests(self, api_path, timeout=TOK_DELAY):
         try:
-            self.parent._browser.wait_for_request(api_path, timeout=TOK_DELAY)
+            self.parent._browser.wait_for_request(api_path, timeout=timeout)
         except TimeoutException:
             raise
 

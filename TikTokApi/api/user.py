@@ -11,7 +11,6 @@ import seleniumwire
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException
 
 from ..exceptions import *
 from ..helpers import extract_tag_contents, add_if_not_replace
@@ -223,7 +222,7 @@ class User(Base):
         data_request_path = "api/post/item_list"
         data_urls = []
         tries = 1
-        MAX_TRIES = 5
+        MAX_TRIES = 6
 
         valid_data_request = False
         cursors = []
@@ -233,7 +232,7 @@ class User(Base):
                 self.scroll_to_bottom()
                 self.parent.request_delay()
             try:
-                self.wait_for_requests(data_request_path, timeout=tries*6)
+                self.wait_for_requests(data_request_path, timeout=tries*4)
             except TimeoutException:
                 tries += 1
                 if tries > MAX_TRIES:
@@ -247,6 +246,9 @@ class User(Base):
                 res_body = self.get_response_body(data_request)
 
                 if not res_body:
+                    tries += 1
+                    if tries > MAX_TRIES:
+                        raise EmptyResponseException('TikTok backend broke')
                     continue
 
                 valid_data_request = True

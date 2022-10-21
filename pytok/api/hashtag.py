@@ -16,7 +16,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 
 if TYPE_CHECKING:
-    from ..tiktok import TikTokApi
+    from ..tiktok import PyTok
     from .video import Video
 
 from .base import Base
@@ -32,7 +32,7 @@ class Hashtag(Base):
     ```
     """
 
-    parent: ClassVar[TikTokApi]
+    parent: ClassVar[PyTok]
 
     id: Optional[str]
     """The ID of the hashtag"""
@@ -144,7 +144,7 @@ class Hashtag(Base):
         return self.__str__()
 
     def __str__(self):
-        return f"TikTokApi.hashtag(id='{self.id}', name='{self.name}')"
+        return f"PyTok.hashtag(id='{self.id}', name='{self.name}')"
 
     def __getattr__(self, name):
         # TODO: Maybe switch to using @property instead
@@ -153,4 +153,4 @@ class Hashtag(Base):
             self.__extract_from_data()
             return self.__getattribute__(name)
 
-        raise AttributeError(f"{name} doesn't exist on TikTokApi.api.Hashtag")
+        raise AttributeError(f"{name} doesn't exist on PyTok.api.Hashtag")

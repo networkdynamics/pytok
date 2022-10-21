@@ -13,7 +13,7 @@ from .base import Base
 from ..exceptions import *
 
 if TYPE_CHECKING:
-    from ..tiktok import TikTokApi
+    from ..tiktok import PyTok
 
 import requests
 from selenium.common.exceptions import TimeoutException
@@ -21,7 +21,7 @@ from selenium.common.exceptions import TimeoutException
 class Search(Base):
     """Contains static methods about searching."""
 
-    parent: TikTokApi
+    parent: PyTok
 
     def __init__(self, search_term):
         self.search_term = search_term

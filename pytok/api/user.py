@@ -18,7 +18,7 @@ from ..helpers import extract_tag_contents, add_if_not_replace
 from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
 
 if TYPE_CHECKING:
-    from ..tiktok import TikTokApi
+    from ..tiktok import PyTok
     from .video import Video
 
 from .base import Base
@@ -39,7 +39,7 @@ class User(Base):
 
     """
 
-    parent: ClassVar[TikTokApi]
+    parent: ClassVar[PyTok]
 
     user_id: str
     """The user ID of the user."""
@@ -378,7 +378,7 @@ class User(Base):
         return self.__str__()
 
     def __str__(self):
-        return f"TikTokApi.user(username='{self.username}', user_id='{self.user_id}', sec_uid='{self.sec_uid}')"
+        return f"PyTok.user(username='{self.username}', user_id='{self.user_id}', sec_uid='{self.sec_uid}')"
 
     def __getattr__(self, name):
         if name in ["as_dict"]:
@@ -386,4 +386,4 @@ class User(Base):
             self.__extract_from_data()
             return self.__getattribute__(name)
 
-        raise AttributeError(f"{name} doesn't exist on TikTokApi.api.User")
+        raise AttributeError(f"{name} doesn't exist on PyTok.api.User")

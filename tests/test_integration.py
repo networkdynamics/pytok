@@ -1,9 +1,9 @@
-from TikTokApi import TikTokApi
+from pytok import PyTok
 import os
 
 
 def test_video_attributes():
-    with TikTokApi(custom_verify_fp=os.environ.get("verifyFp", None)) as api:
+    with PyTok(custom_verify_fp=os.environ.get("verifyFp", None)) as api:
         tag_name = "funny"
         for video in api.hashtag(name=tag_name).videos():
             # Test hashtags on video.

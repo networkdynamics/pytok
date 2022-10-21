@@ -1,6 +1,6 @@
 import json
 
-from TikTokApi import TikTokApi
+from pytok import PyTok
 
 videos = [
     {
@@ -11,7 +11,7 @@ videos = [
     }
 ]
 
-with TikTokApi(chrome_version=104) as api:
+with PyTok(chrome_version=104) as api:
     for video in videos:
         comments = []
         for comment in api.video(id=video['id'], username=video['author']['uniqueId']).comments(count=1000):

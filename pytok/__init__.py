@@ -3,4 +3,4 @@
 """
 __docformat__ = "restructuredtext"
 
-from TikTokApi.tiktok import TikTokApi
+from pytok.tiktok import PyTok

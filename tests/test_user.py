@@ -1,11 +1,11 @@
-from TikTokApi import TikTokApi
+from pytok import PyTok
 import os
 
 username = "brianjordanalvarez"
 
 
 def test_user_info():
-    with TikTokApi(custom_verify_fp=os.environ.get("verifyFp", None)) as api:
+    with PyTok(custom_verify_fp=os.environ.get("verifyFp", None)) as api:
         data = api.user(username=username).info()
 
         assert data["uniqueId"] == username
@@ -14,7 +14,7 @@ def test_user_info():
 
 
 def test_user_videos():
-    with TikTokApi() as api:
+    with PyTok() as api:
         count = 0
         for video in api.user(username=username).videos(count=100):
             count += 1
@@ -23,7 +23,7 @@ def test_user_videos():
 
 
 def test_user_liked():
-    with TikTokApi(custom_verify_fp=os.environ.get("verifyFp", None)) as api:
+    with PyTok(custom_verify_fp=os.environ.get("verifyFp", None)) as api:
         user = api.user(username="public_likes")
 
         count = 0

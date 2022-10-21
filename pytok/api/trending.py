@@ -11,13 +11,13 @@ from .hashtag import Hashtag
 from typing import TYPE_CHECKING, Iterator
 
 if TYPE_CHECKING:
-    from ..tiktok import TikTokApi
+    from ..tiktok import PyTok
 
 
 class Trending:
     """Contains static methods related to trending."""
 
-    parent: TikTokApi
+    parent: PyTok
 
     @staticmethod
     def videos(count=30, **kwargs) -> Iterator[Video]:

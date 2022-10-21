@@ -1,10 +1,7 @@
-__pycache__/tiktok.cpython-37.pyc
+__pycache__/*
 bmp.log
 geckodriver.log
 server.log
-TikTok-Api/bmp.log
-TikTok-Api/geckodriver.log
-TikTok-Api/server.log
 browsermob-proxy/*
 myScripts/*
 test.py

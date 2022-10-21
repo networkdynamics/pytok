@@ -6,17 +6,16 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="TikTokApi",
+    name="pytok",
     packages=setuptools.find_packages(),
     version="0.0.1",
     license="MIT",
     description="Selenium based version of The Unofficial TikTok API Wrapper in Python 3.",
     author="Ben Steel",
     author_email="bendavidsteel@gmail.com",
-    url="https://github.com/networkdynamics/tiktok-api",
+    url="https://github.com/networkdynamics/pytok",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    download_url="https://github.com/davidteather/TikTok-Api/tarball/master",
     keywords=["tiktok", "python3", "api", "unofficial", "tiktok-api", "tiktok api"],
     install_requires=["requests", "selenium_stealth", "selenium-wire", "undetected-chromedriver"],
     classifiers=[

@@ -1,14 +1,14 @@
 import subprocess
 import sys
 
-LOGGER_NAME: str = "TikTokApi"
+LOGGER_NAME: str = "PyTok"
 
 
 def update_messager():
-    if not check("TikTokApi"):
+    if not check("PyTok"):
         # Outdated
         print(
-            "TikTokApi package is outdated, please consider upgrading! \n(You can suppress this by setting ignore_version=True in the TikTokApi constructor)"
+            "PyTok package is outdated, please consider upgrading! \n(You can suppress this by setting ignore_version=True in the PyTok constructor)"
         )
 
     if not check_future_deprecation():

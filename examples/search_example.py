@@ -1,6 +1,6 @@
-from TikTokApi import TikTokApi
+from pytok import PyTok
 
-with TikTokApi() as api:
+with PyTok() as api:
     for user in api.search.users("therock"):
         print(user.username)
 

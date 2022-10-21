@@ -1,4 +1,4 @@
-from TikTokApi.browser_utilities.browser import browser
+from pytok.browser_utilities.browser import browser
 from urllib.parse import quote, urlencode
 from .exceptions import *
 

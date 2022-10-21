@@ -1,6 +1,6 @@
-from TikTokApi import TikTokApi
+from pytok import PyTok
 
-with TikTokApi() as api:
+with PyTok() as api:
     video = api.video(id="7041997751718137094")
 
     # Bytes of the TikTok video

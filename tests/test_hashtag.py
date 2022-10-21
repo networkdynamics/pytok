@@ -1,9 +1,9 @@
-from TikTokApi import TikTokApi
+from pytok import PyTok
 import os
 
 
 def test_hashtag_videos():
-    with TikTokApi(custom_verify_fp=os.environ.get("verifyFp", None)) as api:
+    with PyTok(custom_verify_fp=os.environ.get("verifyFp", None)) as api:
         tag = api.hashtag(name="funny")
         video_count = 0
         for video in tag.videos(count=100):
@@ -13,7 +13,7 @@ def test_hashtag_videos():
 
 
 def test_hashtag_info():
-    with TikTokApi(custom_verify_fp=os.environ.get("verifyFp", None)) as api:
+    with PyTok(custom_verify_fp=os.environ.get("verifyFp", None)) as api:
         tag = api.hashtag(name="funny")
         data = tag.info()
         assert data["title"] == "funny"
@@ -21,7 +21,7 @@ def test_hashtag_info():
 
 
 def test_non_latin1():
-    with TikTokApi(custom_verify_fp=os.environ.get("verifyFp", None)) as api:
+    with PyTok(custom_verify_fp=os.environ.get("verifyFp", None)) as api:
         name = "селфи"
         tag = api.hashtag(name=name)
         data = tag.info()

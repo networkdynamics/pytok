@@ -1,6 +1,6 @@
-from TikTokApi import TikTokApi
+from pytok import PyTok
 
-with TikTokApi() as api:
+with PyTok() as api:
     tag = api.hashtag(name="funny")
 
     print(tag.info())

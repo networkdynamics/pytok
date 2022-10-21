@@ -11,7 +11,7 @@ from ..exceptions import *
 from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
 
 if TYPE_CHECKING:
-    from ..tiktok import TikTokApi
+    from ..tiktok import PyTok
     from .user import User
     from .video import Video
 
@@ -26,7 +26,7 @@ class Sound:
     ```
     """
 
-    parent: ClassVar[TikTokApi]
+    parent: ClassVar[PyTok]
 
     id: str
     """TikTok's ID for the sound"""
@@ -121,7 +121,7 @@ class Sound:
         return self.__str__()
 
     def __str__(self):
-        return f"TikTokApi.sound(id='{self.id}')"
+        return f"PyTok.sound(id='{self.id}')"
 
     def __getattr__(self, name):
         if name in ["title", "author", "as_dict"]:
@@ -129,4 +129,4 @@ class Sound:
             self.__extract_from_data()
             return self.__getattribute__(name)
 
-        raise AttributeError(f"{name} doesn't exist on TikTokApi.api.Sound")
+        raise AttributeError(f"{name} doesn't exist on PyTok.api.Sound")

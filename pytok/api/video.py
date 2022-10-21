@@ -10,7 +10,7 @@ import json
 import requests
 
 if TYPE_CHECKING:
-    from ..tiktok import TikTokApi
+    from ..tiktok import PyTok
     from .user import User
     from .sound import Sound
     from .hashtag import Hashtag
@@ -29,7 +29,7 @@ class Video(Base):
     ```
     """
 
-    parent: ClassVar[TikTokApi]
+    parent: ClassVar[PyTok]
 
     id: Optional[str]
     """TikTok's ID of the Video"""
@@ -304,7 +304,7 @@ class Video(Base):
         return self.__str__()
 
     def __str__(self):
-        return f"TikTokApi.video(id='{self.id}')"
+        return f"PyTok.video(id='{self.id}')"
 
     def __getattr__(self, name):
         # Handle author, sound, hashtags, as_dict
@@ -313,4 +313,4 @@ class Video(Base):
             self.__extract_from_data()
             return self.__getattribute__(name)
 
-        raise AttributeError(f"{name} doesn't exist on TikTokApi.api.Video")
+        raise AttributeError(f"{name} doesn't exist on PyTok.api.Video")

@@ -87,18 +87,19 @@ class Video(Base):
         video_data = api.video(id='7041997751718137094').info_full()
         ```
         """
-        processed = self.parent._process_kwargs(kwargs)
-        kwargs["custom_device_id"] = processed.device_id
+        driver = self.parent._browser
+        url = f"https://www.tiktok.com/@{self.username}/video/{self.id}"
+        driver.get(url)
+        self.check_initial_call(url)
+        self.wait_for_content_or_unavailable_or_captcha('comment-level-1', 'Video currently unavailable')
 
-        device_id = kwargs.get("custom_device_id", None)
-        query = {
-            "itemId": self.id,
-        }
-        path = "api/item/detail/?{}&{}".format(
-            self.parent._add_url_params(), urlencode(query)
-        )
+        # get initial html data
+        html_request_path = f"api/item/detail/"
+        initial_html_request = self.get_requests(html_request_path)[0]
+        contents = self.get_response_body(initial_html_request)
+        res = json.loads(contents)
 
-        return self.parent.get_data(path, **kwargs)
+        return res
 
     def bytes(self, **kwargs) -> bytes:
         """

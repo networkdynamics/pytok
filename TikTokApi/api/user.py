@@ -94,23 +94,19 @@ class User(Base):
                 "You must provide the username when creating this class to use this method."
             )
 
-        quoted_username = quote(self.username)
-        r = requests.get(
-            "https://tiktok.com/@{}?lang=en".format(quoted_username),
-            headers={
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-                "path": "/@{}".format(quoted_username),
-                "Accept-Encoding": "gzip, deflate",
-                "Connection": "keep-alive",
-                "User-Agent": self.parent._user_agent,
-            },
-            proxies=User.parent._format_proxy(kwargs.get("proxy", None)),
-            cookies=User.parent._get_cookies(**kwargs),
-            **User.parent._requests_extra_kwargs,
-        )
+        driver = User.parent._browser
 
-        data = extract_tag_contents(r.text)
-        user = json.loads(data)
+        url = f"https://www.tiktok.com/@{self.username}"
+        driver.get(url)
+        self.check_initial_call(url)
+        self.wait_for_content_or_captcha('user-post-item')
+
+        # get initial html data
+        html_req_path = f"@{self.username}"
+        initial_html_request = self.get_requests(html_req_path)[0]
+        html_body = self.get_response_body(initial_html_request)
+        tag_contents = extract_tag_contents(html_body)
+        user = json.loads(tag_contents)
 
         user_props = user["props"]["pageProps"]
         if user_props["statusCode"] == 404:

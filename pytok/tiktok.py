@@ -22,8 +22,7 @@ from .api.video import Video
 from .api.trending import Trending
 
 from .exceptions import *
-from .utilities import LOGGER_NAME, update_messager
-from .browser_utilities.browser import browser
+from .utils import LOGGER_NAME
 from dataclasses import dataclass
 
 os.environ["no_proxy"] = "127.0.0.1,localhost"

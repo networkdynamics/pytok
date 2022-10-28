@@ -114,13 +114,7 @@ class Video(Base):
             output.write(video_bytes)
         ```
         """
-        processed = self.parent._process_kwargs(kwargs)
-        kwargs["custom_device_id"] = processed.device_id
-
-        video_data = self.info(**kwargs)
-        download_url = video_data["video"]["playAddr"]
-
-        return self.parent.get_bytes(url=download_url, **kwargs)
+        raise NotImplementedError()
 
     def _get_comments_and_req(self, count):
 

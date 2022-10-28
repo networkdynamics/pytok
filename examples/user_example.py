@@ -5,6 +5,3 @@ with PyTok() as api:
 
     for video in user.videos():
         print(video.id)
-
-    for liked_video in api.user(username="public_likes").videos():
-        print(liked_video.id)

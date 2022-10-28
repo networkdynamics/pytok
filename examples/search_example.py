@@ -1,11 +1,8 @@
 from pytok import PyTok
 
 with PyTok() as api:
-    for user in api.search.users("therock"):
+    for user in api.search("therock").users():
         print(user.username)
 
-    for sound in api.search.sounds("funny"):
+    for sound in api.search('funny').videos():
         print(sound.title)
-
-    for hashtag in api.search.hashtags("funny"):
-        print(hashtag.name)

@@ -85,7 +85,7 @@ def load_comment_df_from_files(file_paths):
     comment_df['text'] = comment_df['text'].str.replace(r'\n',  ' ', regex=True)
     return comment_df
 
-def get_comment_df(file_paths, csv_path):
+def get_comment_df(csv_path, file_paths=[]):
 
     if os.path.exists(csv_path):
         comment_df = pd.read_csv(csv_path, dtype={'author_name': str, 'author_id': str, 'comment_id': str, 'video_id': str, 'reply_comment_id': str})
@@ -106,7 +106,7 @@ def str_to_list(stri):
         return []
     return [word.strip()[1:-1] for word in stri[1:-1].split(',')]
 
-def get_video_df(file_paths, csv_path):
+def get_video_df(csv_path, file_paths=[]):
 
     if os.path.exists(csv_path):
         video_df = pd.read_csv(csv_path, \

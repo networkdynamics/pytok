@@ -94,12 +94,17 @@ class Video(Base):
         self.wait_for_content_or_unavailable_or_captcha('comment-level-1', 'Video currently unavailable')
 
         # get initial html data
-        html_request_path = f"api/item/detail/"
-        initial_html_request = self.get_requests(html_request_path)[0]
-        contents = self.get_response_body(initial_html_request)
+        initial_html_request = self.get_requests(url)[0]
+        html_body = self.get_response_body(initial_html_request)
+        contents = extract_tag_contents(html_body)
         res = json.loads(contents)
 
-        return res
+        video = list(res['ItemModule'].values())[0]
+
+        video_users = res['UserModule']['users']
+        video['author'] = video_users[video['author']]
+
+        return video
 
     def bytes(self, **kwargs) -> bytes:
         """

@@ -29,14 +29,9 @@ def get_comment_features(comment):
 
     return author_id, author_name, mentioned_users
 
-def load_comment_df():
-    this_dir_path = os.path.dirname(os.path.abspath(__file__))
-    data_dir_path = os.path.join(this_dir_path, '..', '..', 'data')
-    comment_dir_path = os.path.join(data_dir_path, 'comments')
-
+def load_comment_df_from_files(file_paths):
     comments_data = []
-    for file_name in tqdm.tqdm(os.listdir(comment_dir_path)):
-        file_path = os.path.join(comment_dir_path, file_name, 'video_comments.json')
+    for file_path in tqdm.tqdm(file_paths):
 
         if not os.path.exists(file_path):
             continue
@@ -90,21 +85,18 @@ def load_comment_df():
     comment_df['text'] = comment_df['text'].str.replace(r'\n',  ' ', regex=True)
     return comment_df
 
-def get_comment_df():
-    this_dir_path = os.path.dirname(os.path.abspath(__file__))
-    data_dir_path = os.path.join(this_dir_path, '..', '..', 'data')
-    df_cache_path = os.path.join(data_dir_path, 'cache', 'all_comments.csv')
+def get_comment_df(file_paths, csv_path):
 
-    if os.path.exists(df_cache_path):
-        comment_df = pd.read_csv(df_cache_path, dtype={'author_name': str, 'author_id': str, 'comment_id': str, 'video_id': str, 'reply_comment_id': str})
+    if os.path.exists(csv_path):
+        comment_df = pd.read_csv(csv_path, dtype={'author_name': str, 'author_id': str, 'comment_id': str, 'video_id': str, 'reply_comment_id': str})
         comment_df = comment_df[comment_df['text'].notna()]
         comment_df = comment_df[comment_df['video_id'].notna()]
         comment_df = comment_df[comment_df['mentions'].notna()]
         comment_df['mentions'] = comment_df['mentions'].apply(str_to_list)
         comment_df['createtime'] = pd.to_datetime(comment_df['createtime'])
     else:
-        comment_df = load_comment_df()
-        comment_df.to_csv(df_cache_path)
+        comment_df = load_comment_df_from_files(file_paths)
+        comment_df.to_csv(csv_path)
 
     return comment_df
 
@@ -114,16 +106,10 @@ def str_to_list(stri):
         return []
     return [word.strip()[1:-1] for word in stri[1:-1].split(',')]
 
-def get_video_df():
+def get_video_df(file_paths, csv_path):
 
-    this_dir_path = os.path.dirname(os.path.abspath(__file__))
-    root_dir_path = os.path.join(this_dir_path, '..', '..')
-    data_dir_path = os.path.join(root_dir_path, 'data')
-
-    video_df_path = os.path.join(data_dir_path, 'cache', 'all_videos.csv')
-
-    if os.path.exists(video_df_path):
-        video_df = pd.read_csv(video_df_path, \
+    if os.path.exists(csv_path):
+        video_df = pd.read_csv(csv_path, \
             dtype={'author_name': str, 'author_id': str, 'video_id': str, 'share_video_id': str, 'share_video_user_id': str})
         video_df['createtime'] = pd.to_datetime(video_df['createtime'])
         video_df['mentions'] = video_df['mentions'].apply(str_to_list)
@@ -131,17 +117,17 @@ def get_video_df():
         return video_df
 
     else:
-        hashtag_dir_path = os.path.join(data_dir_path, 'hashtags')
-        searches_dir_path = os.path.join(data_dir_path, 'searches')
-        file_paths = [os.path.join(hashtag_dir_path, file_name) for file_name in os.listdir(hashtag_dir_path)] \
-                + [os.path.join(searches_dir_path, file_name) for file_name in os.listdir(searches_dir_path)]
-
         videos = []
         for file_path in file_paths:
             with open(file_path, 'r') as f:
-                video_data = json.load(f)
+                file_data = json.load(f)
 
-            videos += video_data
+            if type(file_data) == list:
+                videos += file_data
+            elif type(file_data) == dict:
+                videos.append(file_data)
+            else:
+                raise ValueError()
 
         vids_data = []
         for video in videos:
@@ -198,7 +184,7 @@ def get_video_df():
 
             vids_data.append((
                 video['id'],
-                datetime.fromtimestamp(video['createTime']), 
+                datetime.fromtimestamp(int(video['createTime'])), 
                 video['author']['uniqueId'], 
                 video['author']['id'],
                 video['desc'], 
@@ -215,5 +201,5 @@ def get_video_df():
             'share_video_id', 'share_video_user_id', 'share_video_user_name', 'share_type', 'mentions'
         ])
         video_df = video_df[video_df['desc'].notna()]
-        video_df.to_csv(video_df_path)
+        video_df.to_csv(csv_path)
         return video_df

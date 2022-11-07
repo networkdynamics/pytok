@@ -5,7 +5,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException
 
-from ..exceptions import *
+from .. import exceptions
 
 TOK_DELAY = 30
 CAPTCHA_DELAY = 999999
@@ -16,18 +16,24 @@ class Base:
         self.wait_for_requests(url)
         request = self.get_requests(url)[0]
         if request.response.status_code >= 300:
-            raise NotAvailableException("Content is not available")
+            raise exceptions.NotAvailableException("Content is not available")
 
     def wait_for_content_or_captcha(self, content_tag):
         driver = self.parent._browser
-        element = WebDriverWait(driver, TOK_DELAY).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
+        try:
+            element = WebDriverWait(driver, TOK_DELAY).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
+        except TimeoutException as e:
+            raise exceptions.TimeoutException(str(e))
 
         if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
             if self.parent._headless:
-                raise CaptchaException('Captcha was thrown, re-run with headless=False and solve the captcha.')
+                raise exceptions.CaptchaException('Captcha was thrown, re-run with headless=False and solve the captcha.')
             else:
-                WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
-                element = WebDriverWait(driver, TOK_DELAY).until(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')))
+                try:
+                    WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+                    element = WebDriverWait(driver, TOK_DELAY).until(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')))
+                except TimeoutException as e:
+                    raise exceptions.TimeoutException(str(e))
 
         return element
 
@@ -36,23 +42,26 @@ class Base:
         try:
             element = WebDriverWait(driver, TOK_DELAY).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')), 
                                                                     EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
-        except TimeoutException:
+        except TimeoutException as e:
             if driver.find_elements(By.XPATH, f"//*[contains(text(), '{unavailable_text}')]"):
-                raise NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
+                raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
             else:
-                raise
+                raise exceptions.TimeoutException(str(e))
 
         if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
-            WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
-            element = WebDriverWait(driver, TOK_DELAY).until(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')))
+            try:
+                WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+                element = WebDriverWait(driver, TOK_DELAY).until(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')))
+            except TimeoutException as e:
+                raise exceptions.TimeoutException(str(e))
 
         return element
 
     def wait_for_requests(self, api_path, timeout=TOK_DELAY):
         try:
             self.parent._browser.wait_for_request(api_path, timeout=timeout)
-        except TimeoutException:
-            raise
+        except TimeoutException as e:
+            raise exceptions.TimeoutException(str(e))
 
     def get_requests(self, api_path):
         return [request for request in self.parent._browser.requests if api_path in request.url and request.response is not None]
@@ -71,15 +80,18 @@ class Base:
         driver = self.parent._browser
         try:
             WebDriverWait(driver, TOK_DELAY).until_not(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={skeleton_tag}]')))
-        except TimeoutException:
+        except TimeoutException as e:
             if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
                 WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
             else:
-                raise
+                raise exceptions.TimeoutException(str(e))
 
     def check_and_wait_for_captcha(self):
         driver = self.parent._browser
         if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
-            WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+            try:
+                WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+            except TimeoutException as e:
+                raise exceptions.TimeoutException(str(e))
         else:
-            raise TikTokException("Captcha requested but not found in browser")
+            raise exceptions.TikTokException("Captcha requested but not found in browser")

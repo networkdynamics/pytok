@@ -79,6 +79,7 @@ def load_comment_df_from_files(file_paths):
             ))
 
     comment_df = pd.DataFrame(comments_data, columns=['comment_id', 'createtime', 'author_name', 'author_id', 'text', 'mentions', 'video_id', 'comment_language', 'reply_comment_id'])
+    comment_df = comment_df.drop_duplicates()
     comment_df = comment_df[comment_df['text'].notna()]
     comment_df = comment_df[comment_df['video_id'].notna()]
     comment_df = comment_df[comment_df['mentions'].notna()]
@@ -200,6 +201,7 @@ def get_video_df(csv_path, file_paths=[]):
             'video_id', 'createtime', 'author_name', 'author_id', 'desc', 'hashtags',
             'share_video_id', 'share_video_user_id', 'share_video_user_name', 'share_type', 'mentions'
         ])
+        video_df = video_df.drop_duplicates()
         video_df = video_df[video_df['desc'].notna()]
         video_df.to_csv(csv_path)
         return video_df

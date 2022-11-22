@@ -1,4 +1,4 @@
-from pytok import PyTok
+from pytok.tiktok import PyTok
 
 with PyTok() as api:
     for user in api.search("therock").users():

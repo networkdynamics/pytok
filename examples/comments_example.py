@@ -1,6 +1,6 @@
 import json
 
-from pytok import PyTok
+from pytok.tiktok import PyTok
 
 videos = [
     {

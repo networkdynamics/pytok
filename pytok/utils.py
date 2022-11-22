@@ -96,7 +96,7 @@ def get_comment_df(csv_path, file_paths=[]):
         comment_df['createtime'] = pd.to_datetime(comment_df['createtime'])
     else:
         comment_df = load_comment_df_from_files(file_paths)
-        comment_df.to_csv(csv_path)
+        comment_df.to_csv(csv_path, index=False)
 
     return comment_df
 
@@ -201,5 +201,5 @@ def get_video_df(csv_path, file_paths=[]):
             'share_video_id', 'share_video_user_id', 'share_video_user_name', 'share_type', 'mentions'
         ])
         video_df = video_df[video_df['desc'].notna()]
-        video_df.to_csv(csv_path)
+        video_df.to_csv(csv_path, index=False)
         return video_df

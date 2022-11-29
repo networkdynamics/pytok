@@ -9,7 +9,7 @@ This is a Selenium based version of David Teacher's unofficial api wrapper for T
 Here's a quick bit of code to get the videos from a particular hashtag on TikTok. There's more examples in the [examples](https://github.com/networkdynamics/pytok/tree/master/examples) directory.
 
 ```py
-from pytok import PyTok
+from pytok.tiktok import PyTok
 
 with PyTok() as api:
     for video in api.hashtag(name=hashtag).videos(count=100):

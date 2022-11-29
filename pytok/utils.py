@@ -79,11 +79,12 @@ def load_comment_df_from_files(file_paths):
             ))
 
     comment_df = pd.DataFrame(comments_data, columns=['comment_id', 'createtime', 'author_name', 'author_id', 'text', 'mentions', 'video_id', 'comment_language', 'reply_comment_id'])
-    comment_df = comment_df.drop_duplicates()
+    comment_df = comment_df.drop_duplicates('comment_id')
     comment_df = comment_df[comment_df['text'].notna()]
     comment_df = comment_df[comment_df['video_id'].notna()]
     comment_df = comment_df[comment_df['mentions'].notna()]
     comment_df['text'] = comment_df['text'].str.replace(r'\n',  ' ', regex=True)
+    comment_df['text'] = comment_df['text'].str.replace(r'\r',  ' ', regex=True)
     return comment_df
 
 def get_comment_df(csv_path, file_paths=[]):
@@ -97,7 +98,7 @@ def get_comment_df(csv_path, file_paths=[]):
         comment_df['createtime'] = pd.to_datetime(comment_df['createtime'])
     else:
         comment_df = load_comment_df_from_files(file_paths)
-        comment_df.to_csv(csv_path)
+        comment_df.to_csv(csv_path, index=False)
 
     return comment_df
 
@@ -201,7 +202,7 @@ def get_video_df(csv_path, file_paths=[]):
             'video_id', 'createtime', 'author_name', 'author_id', 'desc', 'hashtags',
             'share_video_id', 'share_video_user_id', 'share_video_user_name', 'share_type', 'mentions'
         ])
-        video_df = video_df.drop_duplicates()
+        video_df = video_df.drop_duplicates('video_id')
         video_df = video_df[video_df['desc'].notna()]
-        video_df.to_csv(csv_path)
+        video_df.to_csv(csv_path, index=False)
         return video_df

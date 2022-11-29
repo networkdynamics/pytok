@@ -1,4 +1,4 @@
-from pytok import PyTok
+from pytok.tiktok import PyTok
 
 with PyTok() as api:
     video = api.video(id="7041997751718137094")

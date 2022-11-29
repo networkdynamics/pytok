@@ -1,4 +1,4 @@
-from pytok import PyTok
+from pytok.tiktok import PyTok
 
 with PyTok() as api:
     user = api.user(username="therock")

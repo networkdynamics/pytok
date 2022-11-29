@@ -56,7 +56,7 @@ def load_comment_df_from_files(file_paths):
 
                     comments_data.append((
                         reply_comment['cid'],
-                        datetime.fromtimestamp(reply_comment['create_time']), 
+                        datetime.utcfromtimestamp(reply_comment['create_time']), 
                         reply_author_name,
                         reply_author_id, 
                         reply_comment['text'],
@@ -68,7 +68,7 @@ def load_comment_df_from_files(file_paths):
 
             comments_data.append((
                 comment['cid'],
-                datetime.fromtimestamp(comment['create_time']), 
+                datetime.utcfromtimestamp(comment['create_time']), 
                 author_name,
                 author_id, 
                 comment['text'],
@@ -185,7 +185,7 @@ def get_video_df(csv_path, file_paths=[]):
 
             vids_data.append((
                 video['id'],
-                datetime.fromtimestamp(int(video['createTime'])), 
+                datetime.utcfromtimestamp(int(video['createTime'])), 
                 video['author']['uniqueId'], 
                 video['author']['id'],
                 video['desc'], 

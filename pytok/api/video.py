@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from urllib.parse import urlencode
-from ..helpers import extract_video_id_from_url
+from ..helpers import extract_video_id_from_url, extract_user_id_from_url
 from typing import TYPE_CHECKING, ClassVar, Optional
 from datetime import datetime
 import re
@@ -63,9 +63,10 @@ class Video(Base):
             self.__extract_from_data()
         elif url is not None:
             self.id = extract_video_id_from_url(url)
+            self.username = extract_user_id_from_url(url)
 
-        if self.id is None:
-            raise TypeError("You must provide id or url parameter.")
+        if self.id is None or self.username is None:
+            raise TypeError("You must provide id and username or url parameter.")
 
     def info(self, **kwargs) -> dict:
         """
@@ -87,11 +88,8 @@ class Video(Base):
         video_data = api.video(id='7041997751718137094').info_full()
         ```
         """
-        driver = self.parent._browser
-        url = f"https://www.tiktok.com/@{self.username}/video/{self.id}"
-        driver.get(url)
-        self.check_initial_call(url)
-        self.wait_for_content_or_unavailable_or_captcha('comment-level-1', 'Video currently unavailable')
+        self.view()
+        url = self._get_url()
 
         # get initial html data
         initial_html_request = self.get_requests(url)[0]
@@ -105,6 +103,25 @@ class Video(Base):
         video['author'] = video_users[video['author']]
 
         return video
+
+    def _get_url(self) -> str:
+        return f"https://www.tiktok.com/@{self.username}/video/{self.id}"
+
+    def view(self, **kwargs) -> None:
+        """
+        Opens the TikTok Video in your default browser.
+
+        Example Usage
+        ```py
+        api.video(id='7041997751718137094').view()
+        ```
+        """
+        driver = self.parent._browser
+        url = self._get_url()
+        driver.get(url)
+        self.check_initial_call(url)
+        # TODO check with something else, sometimes no comments so this breaks
+        self.wait_for_content_or_unavailable_or_captcha('comment-level-1', 'Video currently unavailable')
 
     def bytes(self, **kwargs) -> bytes:
         """
@@ -122,12 +139,7 @@ class Video(Base):
         raise NotImplementedError()
 
     def _get_comments_and_req(self, count):
-
-        driver = self.parent._browser
-        url = f"https://www.tiktok.com/@{self.username}/video/{self.id}"
-        driver.get(url)
-        self.check_initial_call(url)
-        self.wait_for_content_or_unavailable_or_captcha('comment-level-1', 'Video currently unavailable')
+        self.view()
 
         # get initial html data
         html_request_path = f"@{self.username}/video/{self.id}"

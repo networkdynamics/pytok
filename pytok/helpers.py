@@ -40,6 +40,16 @@ def extract_video_id_from_url(url):
             "https://www.tiktok.com/@therock/video/6829267836783971589"
         )
 
+def extract_user_id_from_url(url):
+    url = requests.head(url=url, allow_redirects=True).url
+    if "@" in url and "/video/" in url:
+        return url.split("/video/")[0].split("@")[1]
+    else:
+        raise TypeError(
+            "URL format not supported. Below is an example of a supported url.\n"
+            "https://www.tiktok.com/@therock/video/6829267836783971589"
+        )
+
 def add_if_not_replace(text, pat, replace, add):
     if re.search(pat, text):
         return re.sub(pat, replace, text)

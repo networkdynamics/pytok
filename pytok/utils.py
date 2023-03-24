@@ -207,3 +207,24 @@ def get_video_df(csv_path, file_paths=[]):
         video_df = video_df[video_df['desc'].notna()]
         video_df.to_csv(csv_path, index=False)
         return video_df
+    
+
+def get_user_df(csv_path, file_paths=[]):
+    if os.path.exists(csv_path):
+        user_df = pd.read_csv(csv_path)
+        return user_df
+
+    else:
+        users = []
+        user_ids = set()
+        for file_path in file_paths:
+            with open(file_path, 'r') as f:
+                file_data = json.load(f)
+
+        users_data = []
+        for user in users:
+            users_data.append(())
+
+        user_df = pd.DataFrame(users_data, columns=[])
+        user_df.to_csv(csv_path, index=False)
+        return user_df

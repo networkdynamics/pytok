@@ -215,16 +215,48 @@ def get_user_df(csv_path, file_paths=[]):
         return user_df
 
     else:
-        users = []
-        user_ids = set()
-        for file_path in file_paths:
+        users = {}
+        for file_path in tqdm.tqdm(file_paths):
+            if not os.path.exists(file_path):
+                continue
+
             with open(file_path, 'r') as f:
                 file_data = json.load(f)
 
-        users_data = []
-        for user in users:
-            users_data.append(())
+            if isinstance(file_data, list):
+                for entity in file_data:
+                    if 'user' in entity:
+                        user_info = entity['user']
+                        if isinstance(user_info, dict):
+                            if 'unique_id' not in user_info:
+                                continue
 
-        user_df = pd.DataFrame(users_data, columns=[])
+                            user_id = user_info['unique_id']
+                            if user_id in users:
+                                users[user_id].update(user_info)
+                            else:
+                                users[user_id] = user_info
+
+                        elif isinstance(user_info, str):
+                            if user_info not in users:
+                                users[user_id] = {'unique_id': user_info}
+
+                    elif 'author' in entity:
+                        user_info = entity['author'] | entity['authorStats']
+
+                        user_id = user_info['uniqueId']
+                        if user_id in users:
+                            users[user_id].update(user_info)
+                        else:
+                            users[user_id] = user_info
+            else:
+                raise ValueError()
+
+        user_df = pd.DataFrame(users.values())
+        user_df['uniqueId'] = user_df['unique_id'].combine_first(user_df['uniqueId'])
+        user_df['avatarThumb'] = user_df['avatarThumb'].combine_first(user_df['avatar_thumb'])
+        user_df = user_df.drop(columns=['unique_id', 'avatar_thumb'])
+        user_df = user_df.drop_duplicates('uniqueId')
+        user_df = user_df[['uniqueId', 'nickname', 'signature', 'verified', 'followingCount', 'followerCount', 'videoCount', 'diggCount', 'avatarThumb']]
         user_df.to_csv(csv_path, index=False)
         return user_df

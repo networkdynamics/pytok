@@ -63,6 +63,7 @@ def load_comment_df_from_files(file_paths):
                         reply_mentioned_users,
                         reply_comment['aweme_id'],
                         reply_comment['comment_language'],
+                        reply_comment['digg_count'],
                         comment['cid']
                     ))
 
@@ -75,10 +76,11 @@ def load_comment_df_from_files(file_paths):
                 mentioned_users,
                 comment['aweme_id'],
                 comment['comment_language'],
+                comment['digg_count'],
                 None
             ))
 
-    comment_df = pd.DataFrame(comments_data, columns=['comment_id', 'createtime', 'author_name', 'author_id', 'text', 'mentions', 'video_id', 'comment_language', 'reply_comment_id'])
+    comment_df = pd.DataFrame(comments_data, columns=['comment_id', 'createtime', 'author_name', 'author_id', 'text', 'mentions', 'video_id', 'comment_language', 'digg_count', 'reply_comment_id'])
     comment_df = comment_df.drop_duplicates('comment_id')
     comment_df = comment_df[comment_df['text'].notna()]
     comment_df = comment_df[comment_df['video_id'].notna()]
@@ -207,11 +209,16 @@ def get_video_df(csv_path, file_paths=[]):
         video_df = video_df[video_df['desc'].notna()]
         video_df.to_csv(csv_path, index=False)
         return video_df
-    
+
 
 def get_user_df(csv_path, file_paths=[]):
     if os.path.exists(csv_path):
         user_df = pd.read_csv(csv_path)
+        user_df['followingCount'] = user_df['followingCount'].astype('Int64')
+        user_df['followerCount'] = user_df['followerCount'].astype('Int64')
+        user_df['videoCount'] = user_df['videoCount'].astype('Int64')
+        user_df['diggCount'] = user_df['diggCount'].astype('Int64')
+        user_df['createtime'] = pd.to_datetime(user_df['createtime'])
         return user_df
 
     else:
@@ -233,7 +240,7 @@ def get_user_df(csv_path, file_paths=[]):
 
                             user_id = user_info['unique_id']
                             if user_id in users:
-                                users[user_id].update(user_info)
+                                users[user_id].update((k,v) for k,v in user_info.items() if v is not None)
                             else:
                                 users[user_id] = user_info
 
@@ -246,7 +253,7 @@ def get_user_df(csv_path, file_paths=[]):
 
                         user_id = user_info['uniqueId']
                         if user_id in users:
-                            users[user_id].update(user_info)
+                            users[user_id].update((k,v) for k,v in user_info.items() if v is not None)
                         else:
                             users[user_id] = user_info
             else:
@@ -254,9 +261,16 @@ def get_user_df(csv_path, file_paths=[]):
 
         user_df = pd.DataFrame(users.values())
         user_df['uniqueId'] = user_df['unique_id'].combine_first(user_df['uniqueId'])
-        user_df['avatarThumb'] = user_df['avatarThumb'].combine_first(user_df['avatar_thumb'])
-        user_df = user_df.drop(columns=['unique_id', 'avatar_thumb'])
         user_df = user_df.drop_duplicates('uniqueId')
-        user_df = user_df[['uniqueId', 'nickname', 'signature', 'verified', 'followingCount', 'followerCount', 'videoCount', 'diggCount', 'avatarThumb']]
-        user_df.to_csv(csv_path, index=False)
+        user_df['id'] = user_df['id'].combine_first(user_df['uid'])
+        # thank you dfir!!! https://dfir.blog/tinkering-with-tiktok-timestamps/
+        user_df.loc[user_df['id'].notna(), 'createtime'] = user_df.loc[user_df['id'].notna(), 'id'].apply(lambda x: datetime.utcfromtimestamp(int(x) >> 32))
+        user_df['createtime'] = pd.to_datetime(user_df['createtime'], utc=True)
+        user_df[['followingCount', 'followerCount', 'videoCount', 'diggCount']] = user_df[['followingCount', 'followerCount', 'videoCount', 'diggCount']].astype('Int64')
+        # excluding because it messes up the csv and its not accessible anyway
+        # user_df['avatarThumb'] = user_df['avatarThumb'].combine_first(user_df['avatar_thumb'])
+        user_df = user_df.drop(columns=['unique_id', 'avatar_thumb', 'uid'])
+        user_df = user_df[['id', 'uniqueId', 'nickname', 'signature', 'verified', 'followingCount', 'followerCount', 'videoCount', 'diggCount', 'createtime']]
+        # protect against people with \r as nickname, how dare they
+        user_df.to_csv(csv_path, index=False, line_terminator="\r\n")
         return user_df

@@ -94,38 +94,60 @@ class Hashtag(Base):
 
         self.wait_for_content_or_captcha('challenge-item')
 
+        processed_urls = []
         amount_yielded = 0
+        pull_method = 'browser'
 
         path = "api/challenge/item_list"
-        request = self.get_requests(path)[-1]
-        body = self.get_response_body(request)
-
-        res = json.loads(body)
 
         while amount_yielded < count:
-            
-            videos = res.get("itemList", [])
-
-            amount_yielded += len(videos)
-            for video in videos:
-                yield self.parent.video(data=video)
-
-            if not res.get("hasMore", False):
-                self.parent.logger.info(
-                    "TikTok isn't sending more TikToks beyond this point."
-                )
-                return
-
-            cursor = res["cursor"]
-            next_url = re.sub("cursor=([0-9]+)", f"cursor={cursor}", request.url)
-
-            r = requests.get(next_url, headers=request.headers)
-            res = r.json()
-
-            if res.get('type') == 'verify':
-                self.check_and_wait_for_captcha()
-
             self.parent.request_delay()
+
+            if pull_method == 'browser':
+                search_requests = self.get_requests(path)
+                for request in search_requests:
+                    processed_urls.append(request.url)
+                    body = self.get_response_body(request)
+                    res = json.loads(body)
+                    if res.get('type') == 'verify':
+                        # this is the captcha denied response
+                        continue
+
+                    videos = res.get("itemList", [])
+                    amount_yielded += len(videos)
+                    for video in videos:
+                        yield self.parent.video(data=video)
+
+                    if not res.get("hasMore", False):
+                        self.parent.logger.info(
+                            "TikTok isn't sending more TikToks beyond this point."
+                        )
+                        return
+
+            elif pull_method == 'requests':
+                cursor = res["cursor"]
+                next_url = re.sub("cursor=([0-9]+)", f"cursor={cursor}", request.url)
+
+                r = requests.get(next_url, headers=request.headers)
+                try:
+                    res = r.json()
+                except json.decoder.JSONDecodeError:
+                    continue
+
+                if res.get('type') == 'verify':
+                    self.check_and_wait_for_captcha()
+
+                videos = res.get("itemList", [])
+
+                amount_yielded += len(videos)
+                for video in videos:
+                    yield self.parent.video(data=video)
+
+                if not res.get("hasMore", False):
+                    self.parent.logger.info(
+                        "TikTok isn't sending more TikToks beyond this point."
+                    )
+                    return
 
     def __extract_from_data(self):
         data = self.as_dict

@@ -93,12 +93,12 @@ class Search(Base):
         self.wait_for_content_or_captcha('search_video-item')
 
         processed_urls = []
-        num_fetched = 0
+        amount_yielded = 0
         pull_method = 'browser'
         
         path = f"api/search/{obj_type}"
 
-        while num_fetched < count:
+        while amount_yielded < count:
             self.parent.request_delay()
 
             if pull_method == 'browser':
@@ -115,12 +115,12 @@ class Search(Base):
                     if obj_type == "user":
                         for result in res.get("user_list", []):
                             yield User(data=result)
-                            num_fetched += 1
+                            amount_yielded += 1
 
                     if obj_type == "item":
                         for result in res.get("item_list", []):
                             yield Video(data=result)
-                            num_fetched += 1
+                            amount_yielded += 1
 
                     if res.get("has_more", 0) == 0:
                         Search.parent.logger.info(
@@ -152,12 +152,12 @@ class Search(Base):
                 if obj_type == "user":
                     for result in res.get("user_list", []):
                         yield User(data=result)
-                        num_fetched += 1
+                        amount_yielded += 1
 
                 if obj_type == "item":
                     for result in res.get("item_list", []):
                         yield Video(data=result)
-                        num_fetched += 1
+                        amount_yielded += 1
 
                 if res.get("has_more", 0) == 0:
                     self.parent.logger.info(

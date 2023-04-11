@@ -296,6 +296,7 @@ class Video(Base):
 
         if "author" in keys:
             self.id = data["id"]
+            self.username = data["author"]["uniqueId"]
             self.create_time = datetime.fromtimestamp(int(data["createTime"]))
             self.stats = data["stats"]
             self.author = self.parent.user(data=data["author"])

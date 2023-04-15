@@ -25,6 +25,8 @@ def get_comment_features(comment):
     else:
         raise ValueError()
 
+    # TODO this appears to not get single mentions
+    raise NotImplementedError()
     mentioned_users = [info['user_id'] for info in comment['text_extra'] if info['user_id'] != '']
 
     return author_id, author_name, mentioned_users

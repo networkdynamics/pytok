@@ -97,14 +97,17 @@ class Hashtag(Base):
         processed_urls = []
         amount_yielded = 0
         pull_method = 'browser'
+        tries = 0
+        MAX_TRIES = 5
 
-        path = "api/challenge/item_list"
+        data_request_path = "api/challenge/item_list"
 
         while amount_yielded < count:
             self.parent.request_delay()
 
             if pull_method == 'browser':
-                search_requests = self.get_requests(path)
+                search_requests = self.get_requests(data_request_path)
+                search_requests = [request for request in search_requests if request.url not in processed_urls]
                 for request in search_requests:
                     processed_urls.append(request.url)
                     body = self.get_response_body(request)
@@ -123,6 +126,18 @@ class Hashtag(Base):
                             "TikTok isn't sending more TikToks beyond this point."
                         )
                         return
+
+                for _ in range(tries):
+                    self.slight_scroll_up()
+                    self.scroll_to_bottom()
+                    self.parent.request_delay()
+                try:
+                    self.wait_for_requests(data_request_path, timeout=tries*4)
+                except TimeoutException:
+                    tries += 1
+                    if tries > MAX_TRIES:
+                        raise
+                    continue
 
             elif pull_method == 'requests':
                 cursor = res["cursor"]

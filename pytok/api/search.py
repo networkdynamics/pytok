@@ -103,6 +103,7 @@ class Search(Base):
 
             if pull_method == 'browser':
                 search_requests = self.get_requests(path)
+                search_requests = [request for request in search_requests if request.url not in processed_urls]
                 for request in search_requests:
                     processed_urls.append(request.url)
                     body = self.get_response_body(request)

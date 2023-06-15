@@ -116,7 +116,7 @@ class User(Base):
 
         return user_props["userInfo"]
 
-    def videos(self, count=200, batch_size=100, **kwargs) -> Iterator[Video]:
+    def videos(self, count=None, batch_size=100, **kwargs) -> Iterator[Video]:
         """
         Returns an iterator yielding Video objects.
 
@@ -204,7 +204,7 @@ class User(Base):
             amount_yielded += len(videos)
             all_videos += [self.parent.video(data=video) for video in videos]
 
-            if amount_yielded >= count:
+            if count and amount_yielded >= count:
                 return all_videos, True, None
 
             has_more = res['ItemList']['user-post']['hasMore']
@@ -218,7 +218,7 @@ class User(Base):
         data_request_path = "api/post/item_list"
         data_urls = []
         tries = 1
-        MAX_TRIES = 6
+        MAX_TRIES = 30
 
         valid_data_request = False
         cursors = []
@@ -257,7 +257,7 @@ class User(Base):
                 amount_yielded += len(videos)
                 all_videos += [self.parent.video(data=video) for video in videos]
 
-                if amount_yielded >= count:
+                if count and amount_yielded >= count:
                     return all_videos, True, None
 
                 has_more = res.get("hasMore", False)

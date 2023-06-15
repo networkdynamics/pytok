@@ -84,8 +84,8 @@ class PyTok:
         options = uc.ChromeOptions()
         #options.page_load_strategy = 'eager'
         if self._headless:
-            options.headless=True
-            options.add_argument('--headless')
+            options.add_argument('--headless=new')
+            options.add_argument("--window-size=1920,1080")
         self._browser = uc.Chrome(options=options)#, version_main=self._chrome_version)
         self._user_agent = self._browser.execute_script("return navigator.userAgent")
 

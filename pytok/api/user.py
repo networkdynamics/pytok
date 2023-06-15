@@ -213,7 +213,7 @@ class User(Base):
         data_request_path = "api/post/item_list"
         data_urls = []
         tries = 1
-        MAX_TRIES = 30
+        MAX_TRIES = 10
 
         valid_data_request = False
         cursors = []
@@ -231,6 +231,12 @@ class User(Base):
                 continue
 
             data_requests = [req for req in self.get_requests(data_request_path) if req.url not in data_urls]
+
+            if not data_requests:
+                tries += 1
+                if tries > MAX_TRIES:
+                    raise EmptyResponseException('TikTok backend broke')
+                continue
 
             for data_request in data_requests:
                 data_urls.append(data_request.url)

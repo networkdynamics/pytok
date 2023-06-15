@@ -75,7 +75,7 @@ class User(Base):
         user_data = api.user(username='therock').info()
         ```
         """
-        return self.info_full(**kwargs)["user"]
+        return self.info_full(**kwargs)
 
     def info_full(self, **kwargs) -> dict:
         """
@@ -106,15 +106,10 @@ class User(Base):
         initial_html_request = self.get_requests(html_req_path)[0]
         html_body = self.get_response_body(initial_html_request)
         tag_contents = extract_tag_contents(html_body)
-        user = json.loads(tag_contents)
+        data = json.loads(tag_contents)
 
-        user_props = user["props"]["pageProps"]
-        if user_props["statusCode"] == 404:
-            raise NotFoundException(
-                "TikTok user with username {} does not exist".format(self.username)
-            )
-
-        return user_props["userInfo"]
+        user = data["UserModule"]["users"][self.username] | data["UserModule"]["stats"][self.username]
+        return user
 
     def videos(self, count=None, batch_size=100, **kwargs) -> Iterator[Video]:
         """

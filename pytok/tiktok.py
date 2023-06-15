@@ -86,7 +86,7 @@ class PyTok:
         if self._headless:
             options.headless=True
             options.add_argument('--headless')
-        self._browser = uc.Chrome(version_main=self._chrome_version, options=options)
+        self._browser = uc.Chrome(options=options)#, version_main=self._chrome_version)
         self._user_agent = self._browser.execute_script("return navigator.userAgent")
 
     def request_delay(self):

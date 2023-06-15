@@ -1,7 +1,17 @@
+import json
+
 from pytok.tiktok import PyTok
 
-with PyTok() as api:
-    user = api.user(username="therock")
+def main():
+    with PyTok() as api:
+        user = api.user(username="therock")
 
-    for video in user.videos():
-        print(video.id)
+        videos = []
+        for video in user.videos():
+            videos.append(video.info())
+
+        with open("out.json", "w") as f:
+            json.dump(videos, f)
+
+if __name__ == "__main__":
+    main()

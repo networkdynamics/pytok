@@ -98,15 +98,11 @@ class Sound:
         data = self.as_dict
         keys = data.keys()
 
-        if data.get("id") == "":
-            self.id = ""
+        self.id = data.get("id")
+        self.title = data.get("title")
 
-        if "authorName" in keys:
-            self.id = data["id"]
-            self.title = data["title"]
-
-            if data.get("authorName") is not None:
-                self.author = self.parent.user(username=data["authorName"])
+        if data.get("authorName") is not None:
+            self.author = self.parent.user(username=data["authorName"])
 
         if self.id is None:
             Sound.parent.logger.error(
@@ -123,10 +119,3 @@ class Sound:
     def __str__(self):
         return f"PyTok.sound(id='{self.id}')"
 
-    def __getattr__(self, name):
-        if name in ["title", "author", "as_dict"]:
-            self.as_dict = self.info()
-            self.__extract_from_data()
-            return self.__getattribute__(name)
-
-        raise AttributeError(f"{name} doesn't exist on PyTok.api.Sound")

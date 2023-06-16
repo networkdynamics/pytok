@@ -70,11 +70,20 @@ class Base:
         body_bytes = seleniumwire.utils.decode(request.response.body, request.response.headers.get('Content-Encoding', 'identity'))
         return body_bytes.decode('utf-8')
 
-    def scroll_to_bottom(self):
-        self.parent._browser.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+    def scroll_to_bottom(self, speed=8):
+        current_scroll_position = self.parent._browser.execute_script("return document.documentElement.scrollTop || document.body.scrollTop;")
+        new_height = current_scroll_position + 1
+        while current_scroll_position <= new_height:
+            current_scroll_position += speed
+            self.parent._browser.execute_script(f"window.scrollTo(0, {current_scroll_position});")
+            new_height = self.parent._browser.execute_script("return document.body.scrollHeight;")
 
-    def slight_scroll_up(self):
-        self.parent._browser.execute_script("window.scrollBy(0,-250);")
+    def slight_scroll_up(self, speed=8):
+        desired_scroll = -250
+        current_scroll = 0
+        while current_scroll > desired_scroll:
+            current_scroll -= speed
+            self.parent._browser.execute_script(f"window.scrollBy(0, {-speed});")
 
     def wait_until_not_skeleton_or_captcha(self, skeleton_tag):
         driver = self.parent._browser

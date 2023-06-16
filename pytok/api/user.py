@@ -97,8 +97,9 @@ class User(Base):
         driver = User.parent._browser
 
         url = f"https://www.tiktok.com/@{self.username}"
-        driver.get(url)
-        self.check_initial_call(url)
+        if driver.current_url != url:
+            driver.get(url)
+            self.check_initial_call(url)
         self.wait_for_content_or_captcha('user-post-item')
 
         # get initial html data
@@ -175,8 +176,9 @@ class User(Base):
         driver = User.parent._browser
 
         url = f"https://www.tiktok.com/@{self.username}"
-        driver.get(url)
-        self.check_initial_call(url)
+        if driver.current_url != url:
+            driver.get(url)
+            self.check_initial_call(url)
         self.wait_for_content_or_captcha('user-post-item')
 
         # get initial html data
@@ -220,6 +222,7 @@ class User(Base):
         while all_scraping or not valid_data_request:
             for _ in range(tries):
                 self.slight_scroll_up()
+                self.parent.request_delay()
                 self.scroll_to_bottom()
                 self.parent.request_delay()
             try:

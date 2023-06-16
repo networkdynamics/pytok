@@ -11,6 +11,7 @@ from typing import ClassVar, Optional
 from urllib import request
 from urllib.parse import quote, urlencode
 
+import pyvirtualdisplay
 from selenium import webdriver
 import seleniumwire.undetected_chromedriver as uc
 
@@ -81,11 +82,17 @@ class PyTok:
 
         self.request_cache = {}
 
-        options = uc.ChromeOptions()
-        #options.page_load_strategy = 'eager'
         if self._headless:
-            options.add_argument('--headless=new')
-            options.add_argument("--window-size=1920,1080")
+            self._display = pyvirtualdisplay.Display()
+            self._display.start()
+
+        options = uc.ChromeOptions()
+        options.add_argument('--ignore-ssl-errors=yes')
+        options.add_argument('--ignore-certificate-errors')
+        # options.page_load_strategy = 'eager'
+        # if self._headless:
+        #     options.add_argument('--headless=new')
+        #     options.add_argument("--window-size=1920,1080")
         self._browser = uc.Chrome(options=options)#, version_main=self._chrome_version)
         self._user_agent = self._browser.execute_script("return navigator.userAgent")
 
@@ -119,6 +126,8 @@ class PyTok:
             pass
         finally:
             self._browser.quit()
+            if self._headless:
+                self._display.stop()
 
     def __enter__(self):
         self._is_context_manager = True

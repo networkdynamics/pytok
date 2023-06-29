@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 import re
 import time
-from urllib.parse import quote, urlencode
+from urllib.parse import urlparse, urlencode
 from attr import has
 
 import requests
-import seleniumwire
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+
 
 from ..exceptions import *
 from ..helpers import extract_tag_contents, add_if_not_replace
@@ -181,6 +181,66 @@ class User(Base):
             self.check_initial_call(url)
         self.wait_for_content_or_captcha('user-post-item')
 
+        video_pull_method = 'scroll'
+        if video_pull_method == 'scroll':
+            return self._get_videos_scroll(count, all_scraping)
+        elif video_pull_method == 'individual':
+            return self._get_videos_individual(count, all_scraping)
+
+    def _get_videos_individual(self, count, all_scraping):
+        driver = User.parent._browser
+
+        content = driver.find_element(By.CSS_SELECTOR, f"[data-e2e=user-post-item]")
+        content.click()
+
+        self.wait_for_content_or_captcha('browse-video')
+
+        still_more = True
+        all_videos = []
+
+        while still_more:
+            html_req_path = driver.current_url
+            initial_html_request = self.get_requests(html_req_path)[0]
+            html_body = self.get_response_body(initial_html_request)
+            tag_contents = extract_tag_contents(html_body)
+            res = json.loads(tag_contents)
+
+            all_videos += res['itemList']
+
+            if still_more:
+                content = driver.find_element(By.CSS_SELECTOR, f"[data-e2e=browse-video]")
+                content.send_keys(Keys.DOWN)
+
+    def _load_each_video(self, videos):
+        driver = User.parent._browser
+
+        # get description elements with identifiable links
+        all_desc_elements = driver.find_elements(By.CSS_SELECTOR, f'[data-e2e=user-post-item-desc]')
+
+        video_elements = []
+        for video in videos:
+            for desc_element in all_desc_elements:
+                if video['id'] in desc_element.children()[0].get_attribute('href'):
+                    # get sibling element of video element
+                    video_element = desc_element.find_element(By.XPATH, '..').children()[0]
+                    video_elements.append((video, video_element))
+                    break
+            else:
+                pass
+                # TODO log this
+                # raise Exception(f"Could not find video element for video {video['id']}")
+
+        a = ActionChains(driver)
+
+        for i, (video, element) in enumerate(video_elements):
+            a.move_to_element(element).perform()
+            play_path = urlparse(video['video']['playAddr']).path
+            self.wait_for_requests(play_path)
+            self.parent.request_delay()
+
+    def _get_videos_scroll(self, count, all_scraping):
+        driver = User.parent._browser
+
         # get initial html data
         html_req_path = f"@{self.username}"
         initial_html_request = self.get_requests(html_req_path)[0]
@@ -195,8 +255,11 @@ class User(Base):
             videos = list(res['ItemModule'].values())
 
             video_users = res["UserModule"]["users"]
+
             for video in videos:
                 video['author'] = video_users[video['author']]
+
+            self._load_each_video(videos)
 
             amount_yielded += len(videos)
             all_videos += [self.parent.video(data=video) for video in videos]
@@ -211,7 +274,6 @@ class User(Base):
                 )
                 return all_videos, True, None
 
-
         data_request_path = "api/post/item_list"
         data_urls = []
         tries = 1
@@ -221,10 +283,10 @@ class User(Base):
         cursors = []
         while all_scraping or not valid_data_request:
             for _ in range(tries):
+                self.parent.request_delay()
                 self.slight_scroll_up()
                 self.parent.request_delay()
                 self.scroll_to_bottom()
-                self.parent.request_delay()
             try:
                 self.wait_for_requests(data_request_path, timeout=tries*4)
             except TimeoutException:
@@ -257,6 +319,8 @@ class User(Base):
                 res = json.loads(res_body)
                 videos = res.get("itemList", [])
                 cursors.append(int(res['cursor']))
+
+                self._load_each_video(videos)
 
                 amount_yielded += len(videos)
                 all_videos += [self.parent.video(data=video) for video in videos]

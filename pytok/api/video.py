@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from urllib.parse import urlencode
+from urllib.parse import urlparse
 from ..helpers import extract_video_id_from_url, extract_user_id_from_url
 from typing import TYPE_CHECKING, ClassVar, Optional
 from datetime import datetime
@@ -136,7 +136,12 @@ class Video(Base):
             output.write(video_bytes)
         ```
         """
-        raise NotImplementedError()
+        play_path = urlparse(self.as_dict['video']['playAddr']).path
+        reqs = self.get_requests(play_path)
+        if len(reqs) == 0:
+            # TODO load page and pull
+            raise Exception("No requests found for video")
+        return self.get_response_body(reqs[0], decode=False)
 
     def _get_comments_and_req(self, count):
         self.view()

@@ -1,3 +1,5 @@
+import random
+
 import requests
 import seleniumwire
 from selenium.webdriver.support.ui import WebDriverWait
@@ -66,23 +68,26 @@ class Base:
     def get_requests(self, api_path):
         return [request for request in self.parent._browser.requests if api_path in request.url and request.response is not None]
 
-    def get_response_body(self, request):
+    def get_response_body(self, request, decode=True):
         body_bytes = seleniumwire.utils.decode(request.response.body, request.response.headers.get('Content-Encoding', 'identity'))
-        return body_bytes.decode('utf-8')
+        if decode:
+            return body_bytes.decode('utf-8')
+        else:
+            return body_bytes
 
-    def scroll_to_bottom(self, speed=8):
+    def scroll_to_bottom(self, speed=4):
         current_scroll_position = self.parent._browser.execute_script("return document.documentElement.scrollTop || document.body.scrollTop;")
         new_height = current_scroll_position + 1
         while current_scroll_position <= new_height:
-            current_scroll_position += speed
+            current_scroll_position += speed + random.randint(-speed, speed)
             self.parent._browser.execute_script(f"window.scrollTo(0, {current_scroll_position});")
             new_height = self.parent._browser.execute_script("return document.body.scrollHeight;")
 
-    def slight_scroll_up(self, speed=8):
-        desired_scroll = -250
+    def slight_scroll_up(self, speed=4):
+        desired_scroll = -500
         current_scroll = 0
         while current_scroll > desired_scroll:
-            current_scroll -= speed
+            current_scroll -= speed + random.randint(-speed, speed)
             self.parent._browser.execute_script(f"window.scrollBy(0, {-speed});")
 
     def wait_until_not_skeleton_or_captcha(self, skeleton_tag):

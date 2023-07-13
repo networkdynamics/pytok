@@ -83,6 +83,16 @@ class Base:
             self.parent._browser.execute_script(f"window.scrollTo(0, {current_scroll_position});")
             new_height = self.parent._browser.execute_script("return document.body.scrollHeight;")
 
+    def scroll_to(self, position, speed=5):
+        current_scroll_position = self.parent._browser.execute_script("return document.documentElement.scrollTop || document.body.scrollTop;")
+        new_height = current_scroll_position + 1
+        while current_scroll_position <= new_height:
+            current_scroll_position += speed + random.randint(-speed, speed)
+            self.parent._browser.execute_script(f"window.scrollTo(0, {current_scroll_position});")
+            new_height = self.parent._browser.execute_script("return document.body.scrollHeight;")
+            if current_scroll_position > position:
+                break
+
     def slight_scroll_up(self, speed=4):
         desired_scroll = -500
         current_scroll = 0

@@ -2,3 +2,4 @@ requests
 selenium_stealth
 selenium-wire
 undetected-chromedriver
+pyvirtualdisplay

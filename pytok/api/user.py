@@ -127,6 +127,15 @@ class User(Base):
             # do something
         ```
         """
+        use_scraping = True
+
+        if use_scraping:
+            yield from self._get_videos_scraping(count)
+        else:
+            yield from self._get_videos_api(count, batch_size, **kwargs)
+
+
+    def _get_videos_api(self, count, batch_size, **kwargs) -> Iterator[Video]:
         amount_yielded = 0
         cursor = 0
         final_cursor = 9999999999999999999999999999999
@@ -172,7 +181,7 @@ class User(Base):
 
             self.parent.request_delay()
 
-    def _get_videos_and_req(self, count, all_scraping):
+    def _get_videos_scraping(self, count):
         driver = User.parent._browser
 
         url = f"https://www.tiktok.com/@{self.username}"
@@ -183,11 +192,11 @@ class User(Base):
 
         video_pull_method = 'scroll'
         if video_pull_method == 'scroll':
-            return self._get_videos_scroll(count, all_scraping)
+            yield from self._get_videos_scroll(count)
         elif video_pull_method == 'individual':
-            return self._get_videos_individual(count, all_scraping)
+            yield from self._get_videos_individual(count)
 
-    def _get_videos_individual(self, count, all_scraping):
+    def _get_videos_individual(self, count):
         driver = User.parent._browser
 
         content = driver.find_element(By.CSS_SELECTOR, f"[data-e2e=user-post-item]")
@@ -233,12 +242,16 @@ class User(Base):
         a = ActionChains(driver)
 
         for i, (video, element) in enumerate(video_elements):
+            self.scroll_to(element.location['y'])
             a.move_to_element(element).perform()
             play_path = urlparse(video['video']['playAddr']).path
-            self.wait_for_requests(play_path)
+            try:
+                self.wait_for_requests(play_path)
+            except Exception:
+                print(f"Failed to load video file for video: {video['id']}")
             self.parent.request_delay()
 
-    def _get_videos_scroll(self, count, all_scraping):
+    def _get_videos_scroll(self, count):
         driver = User.parent._browser
 
         # get initial html data
@@ -262,17 +275,19 @@ class User(Base):
             self._load_each_video(videos)
 
             amount_yielded += len(videos)
-            all_videos += [self.parent.video(data=video) for video in videos]
+            video_objs = [self.parent.video(data=video) for video in videos]
 
-            if count and amount_yielded >= count:
-                return all_videos, True, None
+            yield from video_objs
 
             has_more = res['ItemList']['user-post']['hasMore']
             if not has_more:
                 User.parent.logger.info(
                     "TikTok isn't sending more TikToks beyond this point."
                 )
-                return all_videos, True, None
+                return
+            
+            if count and amount_yielded >= count:
+                return
 
         data_request_path = "api/post/item_list"
         data_urls = []
@@ -281,7 +296,7 @@ class User(Base):
 
         valid_data_request = False
         cursors = []
-        while all_scraping or not valid_data_request:
+        while not valid_data_request:
             for _ in range(tries):
                 self.parent.request_delay()
                 self.slight_scroll_up()
@@ -323,19 +338,21 @@ class User(Base):
                 self._load_each_video(videos)
 
                 amount_yielded += len(videos)
-                all_videos += [self.parent.video(data=video) for video in videos]
+                video_objs = [self.parent.video(data=video) for video in videos]
+
+                yield from video_objs
 
                 if count and amount_yielded >= count:
-                    return all_videos, True, None
+                    return
 
                 has_more = res.get("hasMore", False)
                 if not has_more:
                     User.parent.logger.info(
                         "TikTok isn't sending more TikToks beyond this point."
                     )
-                    return all_videos, True, None
+                    return
 
-        return all_videos, False, min(cursors)
+        return
 
 
     def liked(self, count: int = 30, cursor: int = 0, **kwargs) -> Iterator[Video]:

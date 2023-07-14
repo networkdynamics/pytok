@@ -244,7 +244,12 @@ class User(Base):
         for i, (video, element) in enumerate(video_elements):
             self.scroll_to(element.location['y'])
             a.move_to_element(element).perform()
-            play_path = urlparse(video['video']['playAddr']).path
+            try:
+                play_path = urlparse(video['video']['playAddr']).path
+            except KeyError:
+                print(f"Missing JSON attributes for video: {video['id']}")
+                continue
+
             try:
                 self.wait_for_requests(play_path)
             except Exception:

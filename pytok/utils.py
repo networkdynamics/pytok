@@ -30,7 +30,7 @@ def _get_comment_features(comment):
     return author_id, author_name, mentioned_users
 
 def load_comment_df_from_files(file_paths):
-    comments_data = []
+    comments = []
     for file_path in tqdm.tqdm(file_paths):
 
         if not os.path.exists(file_path):
@@ -38,47 +38,52 @@ def load_comment_df_from_files(file_paths):
 
         with open(file_path, 'r') as f:
             comments = json.load(f)
+        comments.extend(comments)
 
-        for comment in comments:
+    return get_comment_df(comments)
 
-            try:
-                author_id, author_name, mentioned_users = get_comment_features(comment)
-            except ValueError:
-                continue
+def get_comment_df(comments):
+    comments_data = []
+    for comment in comments:
 
-            comment_replies = comment.get('reply_comment', None)
-            if comment_replies:
-                for reply_comment in comment_replies:
-                    try:
-                        reply_author_id, reply_author_name, reply_mentioned_users = get_comment_features(reply_comment)
-                    except ValueError:
-                        continue
+        try:
+            author_id, author_name, mentioned_users = _get_comment_features(comment)
+        except ValueError:
+            continue
 
-                    comments_data.append((
-                        reply_comment['cid'],
-                        datetime.utcfromtimestamp(reply_comment['create_time']), 
-                        reply_author_name,
-                        reply_author_id, 
-                        reply_comment['text'],
-                        reply_mentioned_users,
-                        reply_comment['aweme_id'],
-                        reply_comment['comment_language'],
-                        reply_comment['digg_count'],
-                        comment['cid']
-                    ))
+        comment_replies = comment.get('reply_comment', None)
+        if comment_replies:
+            for reply_comment in comment_replies:
+                try:
+                    reply_author_id, reply_author_name, reply_mentioned_users = _get_comment_features(reply_comment)
+                except ValueError:
+                    continue
 
-            comments_data.append((
-                comment['cid'],
-                datetime.utcfromtimestamp(comment['create_time']), 
-                author_name,
-                author_id, 
-                comment['text'],
-                mentioned_users,
-                comment['aweme_id'],
-                comment['comment_language'],
-                comment['digg_count'],
-                None
-            ))
+                comments_data.append((
+                    reply_comment['cid'],
+                    datetime.utcfromtimestamp(reply_comment['create_time']), 
+                    reply_author_name,
+                    reply_author_id, 
+                    reply_comment['text'],
+                    reply_mentioned_users,
+                    reply_comment['aweme_id'],
+                    reply_comment['comment_language'],
+                    reply_comment['digg_count'],
+                    comment['cid']
+                ))
+
+        comments_data.append((
+            comment['cid'],
+            datetime.utcfromtimestamp(comment['create_time']), 
+            author_name,
+            author_id, 
+            comment['text'],
+            mentioned_users,
+            comment['aweme_id'],
+            comment['comment_language'],
+            comment['digg_count'],
+            None
+        ))
 
     comment_df = pd.DataFrame(comments_data, columns=['comment_id', 'createtime', 'author_name', 'author_id', 'text', 'mentions', 'video_id', 'comment_language', 'digg_count', 'reply_comment_id'])
     comment_df = comment_df.drop_duplicates('comment_id')
@@ -96,7 +101,7 @@ def try_load_comment_df_from_file(csv_path, file_paths=[]):
         comment_df = comment_df[comment_df['text'].notna()]
         comment_df = comment_df[comment_df['video_id'].notna()]
         comment_df = comment_df[comment_df['mentions'].notna()]
-        comment_df['mentions'] = comment_df['mentions'].apply(str_to_list)
+        comment_df['mentions'] = comment_df['mentions'].apply(_str_to_list)
         comment_df['createtime'] = pd.to_datetime(comment_df['createtime'])
     else:
         comment_df = load_comment_df_from_files(file_paths)

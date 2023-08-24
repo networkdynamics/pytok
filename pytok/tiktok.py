@@ -47,6 +47,7 @@ class PyTok:
         logging_level: int = logging.WARNING,
         request_delay: Optional[int] = 0,
         headless: Optional[bool] = False,
+        chromedriver_path: Optional[str] = None,
         chrome_version: Optional[int] = 102
     ):
         """The PyTok class. Used to interact with TikTok. This is a singleton
@@ -93,7 +94,10 @@ class PyTok:
         # if self._headless:
         #     options.add_argument('--headless=new')
         #     options.add_argument("--window-size=1920,1080")
-        self._browser = uc.Chrome(options=options)#, version_main=self._chrome_version)
+        kwargs = {"options": options}
+        if chromedriver_path:
+            kwargs["driver_executable_path"] = chromedriver_path
+        self._browser = uc.Chrome(**kwargs)
         self._user_agent = self._browser.execute_script("return navigator.userAgent")
 
     def request_delay(self):
@@ -125,7 +129,8 @@ class PyTok:
         except Exception:
             pass
         finally:
-            self._browser.quit()
+            if getattr(self, "_browser", None):
+                self._browser.quit()
             if self._headless:
                 self._display.stop()
 

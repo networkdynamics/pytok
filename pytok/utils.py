@@ -148,6 +148,9 @@ def get_video_df(videos):
         # get text extra relating to user names
         video_mentions = [extra for extra in video.get('textExtra', []) if extra.get('userId', None)]
 
+        # get all hashtags used in the description
+        hashtags = [extra['hashtagName'] for extra in video.get('textExtra', []) if extra.get('hashtagName', None)]
+
         # get all reply types
         match = re.search("^\#([^# ]+) [^@# ]+ @([^ ]+)", video['desc'])
         if match and len(video_mentions) > 0:
@@ -202,7 +205,7 @@ def get_video_df(videos):
             video['author']['uniqueId'], 
             video['author']['id'],
             video['desc'], 
-            [challenge['title'] for challenge in video.get('challenges', [])],
+            hashtags,
             share_video_id,
             share_video_user_id,
             share_video_user_name,

@@ -210,12 +210,17 @@ def get_video_df(videos):
             share_video_user_id,
             share_video_user_name,
             share_type,
-            mentions
+            mentions,
+            video['stats']['diggCount'],
+            video['stats']['shareCount'],
+            video['stats']['commentCount'],
+            video['stats']['playCount'],
         ))
 
     video_df = pd.DataFrame(vids_data, columns=[
         'video_id', 'createtime', 'author_name', 'author_id', 'desc', 'hashtags',
-        'share_video_id', 'share_video_user_id', 'share_video_user_name', 'share_type', 'mentions'
+        'share_video_id', 'share_video_user_id', 'share_video_user_name', 'share_type', 'mentions',
+        'digg_count', 'share_count', 'comment_count', 'view_count'
     ])
     video_df = video_df.drop_duplicates('video_id')
     video_df = video_df[video_df['desc'].notna()]

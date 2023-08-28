@@ -146,6 +146,9 @@ def extract_video_features(video):
     # get text extra relating to user names
     video_mentions = [extra for extra in video.get('textExtra', []) if extra.get('userId', None) and extra['userId'] != '0']
 
+    # get all hashtags used in the description
+    hashtags = [extra['hashtagName'] for extra in video.get('textExtra', []) if extra.get('hashtagName', None)]
+
     # get all reply types
     match = re.search("^\#([^# ]+) [^@# ]+ @([^ ]+)", video['desc'])
     if match and len(video_mentions) > 0:
@@ -194,30 +197,35 @@ def extract_video_features(video):
     if video.get('duetInfo', None) and video['duetInfo']['duetFromId'] != '0' and share_video_id and video['duetInfo']['duetFromId'] != share_video_id:
         raise ValueError("Comment metadata is mismatched")
 
-    video_features = (
+    vid_features = (
         video['id'],
         datetime.utcfromtimestamp(int(video['createTime'])), 
         video['author']['uniqueId'], 
         video['author']['id'],
         video['desc'], 
-        [challenge['title'] for challenge in video.get('challenges', [])],
+        hashtags,
         share_video_id,
         share_video_user_id,
         share_video_user_name,
         share_type,
-        mentions
+        mentions,
+        video['stats']['diggCount'],
+        video['stats']['shareCount'],
+        video['stats']['commentCount'],
+        video['stats']['playCount'],
     )
-    return video_features
+    return vid_features
 
 def get_video_df(videos):
     vids_data = []
     for video in videos:
-        video_features = extract_video_features(video)
-        vids_data.append(video_features)
+        vid_features = extract_video_features(video)
+        vids_data.append(vid_features)
 
     video_df = pd.DataFrame(vids_data, columns=[
         'video_id', 'createtime', 'author_name', 'author_id', 'desc', 'hashtags',
-        'share_video_id', 'share_video_user_id', 'share_video_user_name', 'share_type', 'mentions'
+        'share_video_id', 'share_video_user_id', 'share_video_user_name', 'share_type', 'mentions',
+        'digg_count', 'share_count', 'comment_count', 'view_count'
     ])
     video_df = video_df.drop_duplicates('video_id')
     video_df = video_df[video_df['desc'].notna()]

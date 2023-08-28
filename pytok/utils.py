@@ -142,73 +142,78 @@ def try_load_video_df_from_file(csv_path, file_paths=[]):
         video_df.to_csv(csv_path, index=False)
         return video_df
 
+def extract_video_features(video):
+    # get text extra relating to user names
+    video_mentions = [extra for extra in video.get('textExtra', []) if extra.get('userId', None) and extra['userId'] != '0']
+
+    # get all reply types
+    match = re.search("^\#([^# ]+) [^@# ]+ @([^ ]+)", video['desc'])
+    if match and len(video_mentions) > 0:
+        # if there are multiple mentions we get the first
+        if video_mentions[0]['awemeId'] != '':
+            share_video_id = video_mentions[0]['awemeId']
+        elif video.get('duetInfo', None) and video['duetInfo']['duetFromId'] != '0':
+            share_video_id = video['duetInfo']['duetFromId']
+        else:
+            # no way to get shared video id
+            share_video_id = None
+        
+        share_video_user_id = video_mentions[0]['userId']
+        share_video_user_name = video_mentions[0]['userUniqueId']
+        share_type = match.group(1)
+
+        video_mentions = video_mentions[1:]
+    else:
+        share_video_id = None
+        share_video_user_id = None
+        share_video_user_name = None
+        share_type = None
+
+    # get duets that we didn't get with the regex
+    if video.get('duetFromId', None) and video['duetFromId'] != '0' and not share_video_id:
+        duet_infos = [mention for mention in video_mentions if mention['awemeId'] == video['duetInfo']['duetFromId']]
+        # sometimes the awemeId is missing
+        if duet_infos:
+            duet_info = duet_infos[0]
+            share_video_id = duet_info['awemeId']
+        else:
+            duet_info = video_mentions[0]
+            share_video_id = video['duetInfo']['duetFromId']
+        
+        share_video_user_id = duet_info['userId']
+        share_video_user_name = duet_info['userUniqueId']
+        share_type = 'duet'
+
+        video_mentions = [mention for mention in video_mentions if mention['awemeId'] != video['duetInfo']['duetFromId']]
+
+    # get user mentions
+    mentions = []
+    if len(video_mentions) > 0:
+        mentions = [mention['userId'] for mention in video_mentions]
+
+    if video.get('duetInfo', None) and video['duetInfo']['duetFromId'] != '0' and share_video_id and video['duetInfo']['duetFromId'] != share_video_id:
+        raise ValueError("Comment metadata is mismatched")
+
+    video_features = (
+        video['id'],
+        datetime.utcfromtimestamp(int(video['createTime'])), 
+        video['author']['uniqueId'], 
+        video['author']['id'],
+        video['desc'], 
+        [challenge['title'] for challenge in video.get('challenges', [])],
+        share_video_id,
+        share_video_user_id,
+        share_video_user_name,
+        share_type,
+        mentions
+    )
+    return video_features
+
 def get_video_df(videos):
     vids_data = []
     for video in videos:
-        # get text extra relating to user names
-        video_mentions = [extra for extra in video.get('textExtra', []) if extra.get('userId', None)]
-
-        # get all reply types
-        match = re.search("^\#([^# ]+) [^@# ]+ @([^ ]+)", video['desc'])
-        if match and len(video_mentions) > 0:
-            # if there are multiple mentions we get the first
-            if video_mentions[0]['awemeId'] != '':
-                share_video_id = video_mentions[0]['awemeId']
-            elif video['duetInfo']['duetFromId'] != '0':
-                share_video_id = video['duetInfo']['duetFromId']
-            else:
-                # no way to get shared video id
-                share_video_id = None
-            
-            share_video_user_id = video_mentions[0]['userId']
-            share_video_user_name = video_mentions[0]['userUniqueId']
-            share_type = match.group(1)
-
-            video_mentions = video_mentions[1:]
-        else:
-            share_video_id = None
-            share_video_user_id = None
-            share_video_user_name = None
-            share_type = None
-
-        # get duets that we didn't get with the regex
-        if video.get('duetFromId', None) and video['duetFromId'] != '0' and not share_video_id:
-            duet_infos = [mention for mention in video_mentions if mention['awemeId'] == video['duetInfo']['duetFromId']]
-            # sometimes the awemeId is missing
-            if duet_infos:
-                duet_info = duet_infos[0]
-                share_video_id = duet_info['awemeId']
-            else:
-                duet_info = video_mentions[0]
-                share_video_id = video['duetInfo']['duetFromId']
-            
-            share_video_user_id = duet_info['userId']
-            share_video_user_name = duet_info['userUniqueId']
-            share_type = 'duet'
-
-            video_mentions = [mention for mention in video_mentions if mention['awemeId'] != video['duetInfo']['duetFromId']]
-
-        # get user mentions
-        mentions = []
-        if len(video_mentions) > 0:
-            mentions = [mention['userId'] for mention in video_mentions]
-
-        if video.get('duetInfo', None) and video['duetInfo']['duetFromId'] != '0' and share_video_id and video['duetInfo']['duetFromId'] != share_video_id:
-            raise ValueError("Comment metadata is mismatched")
-
-        vids_data.append((
-            video['id'],
-            datetime.utcfromtimestamp(int(video['createTime'])), 
-            video['author']['uniqueId'], 
-            video['author']['id'],
-            video['desc'], 
-            [challenge['title'] for challenge in video.get('challenges', [])],
-            share_video_id,
-            share_video_user_id,
-            share_video_user_name,
-            share_type,
-            mentions
-        ))
+        video_features = extract_video_features(video)
+        vids_data.append(video_features)
 
     video_df = pd.DataFrame(vids_data, columns=[
         'video_id', 'createtime', 'author_name', 'author_id', 'desc', 'hashtags',

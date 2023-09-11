@@ -65,13 +65,13 @@ The user dataframe will contain the following columns:
 |Field name | Description |
 |----------|-----------|
 |`id`| Unique author ID |
-|`uniqueId`| Unique user name |
+|`unique_id`| Unique user name |
 |`nickname`| Display user name, changeable |
 |`signature`| Short user description |
 |`verified`| Whether or not the user is verified |
-|`followingCount`| How many other accounts the user is following |
-|`followerCount`| How many followers the user has |
-|`videoCount`| How many videos the user has made |
-|`diggCount`| How many total likes the user has had |
+|`num_following`| How many other accounts the user is following |
+|`num_followers`| How many followers the user has |
+|`num_videos`| How many videos the user has made |
+|`num_likes`| How many total likes the user has had |
 |`createtime`| When the user account was made. This is derived from the `id` field, and can occasionally be incorrect with a very low unix epoch such as 1971 |
 

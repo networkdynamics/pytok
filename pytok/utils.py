@@ -85,7 +85,7 @@ def get_comment_df(comments):
             None
         ))
 
-    comment_df = pd.DataFrame(comments_data, columns=['comment_id', 'createtime', 'author_name', 'author_id', 'text', 'mentions', 'video_id', 'comment_language', 'digg_count', 'reply_comment_id'])
+    comment_df = pd.DataFrame(comments_data, columns=['comment_id', 'createtime', 'author_name', 'author_id', 'text', 'mentions', 'video_id', 'comment_language', 'like_count', 'reply_comment_id'])
     comment_df = comment_df.drop_duplicates('comment_id')
     comment_df = comment_df[comment_df['text'].notna()]
     comment_df = comment_df[comment_df['video_id'].notna()]
@@ -319,5 +319,12 @@ def get_user_df(entities):
     if 'avatar_thumb' in user_df.columns:
         user_df = user_df.drop(columns=['avatar_thumb'])
     user_df = user_df[['id', 'uniqueId', 'nickname', 'signature', 'verified', 'followingCount', 'followerCount', 'videoCount', 'diggCount', 'createtime']]
+    user_df = user_df.rename(columns={
+        'uniqueId': 'unique_id',
+        'followingCount': 'num_following', 
+        'followerCount': 'num_followers', 
+        'videoCount': 'num_videos', 
+        'diggCount': 'num_likes'
+    })
     
     return user_df

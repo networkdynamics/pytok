@@ -104,6 +104,9 @@ def try_load_comment_df_from_file(csv_path, file_paths=[]):
         comment_df['mentions'] = comment_df['mentions'].apply(_str_to_list)
         comment_df['createtime'] = pd.to_datetime(comment_df['createtime'])
     else:
+        if not file_paths:
+            raise ValueError("No file paths provided to generate comment df")
+
         comment_df = load_comment_df_from_files(file_paths)
         comment_df.to_csv(csv_path, index=False)
 
@@ -126,6 +129,9 @@ def try_load_video_df_from_file(csv_path, file_paths=[]):
         return video_df
 
     else:
+        if not file_paths:
+            raise ValueError("No file paths provided to generate video df")
+
         videos = []
         for file_path in file_paths:
             with open(file_path, 'r') as f:
@@ -244,6 +250,9 @@ def try_load_user_df_from_file(csv_path, file_paths=[]):
         return user_df
 
     else:
+        if not file_paths:
+            raise ValueError("No file paths provided to generate user df")
+
         entities = []
         for file_path in tqdm.tqdm(file_paths):
             if not os.path.exists(file_path):

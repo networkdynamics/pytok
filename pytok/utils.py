@@ -242,10 +242,10 @@ def get_video_df(videos):
 def try_load_user_df_from_file(csv_path, file_paths=[]):
     if os.path.exists(csv_path):
         user_df = pd.read_csv(csv_path)
-        user_df['followingCount'] = user_df['followingCount'].astype('Int64')
-        user_df['followerCount'] = user_df['followerCount'].astype('Int64')
-        user_df['videoCount'] = user_df['videoCount'].astype('Int64')
-        user_df['diggCount'] = user_df['diggCount'].astype('Int64')
+        user_df['num_following'] = user_df['num_following'].astype('Int64')
+        user_df['num_followers'] = user_df['num_followers'].astype('Int64')
+        user_df['num_videos'] = user_df['num_videos'].astype('Int64')
+        user_df['num_likes'] = user_df['num_likes'].astype('Int64')
         user_df['createtime'] = pd.to_datetime(user_df['createtime'])
         return user_df
 

@@ -323,6 +323,8 @@ def get_user_df(entities):
         else:
             raise ValueError("Unknown entity type")
 
+    assert len(users) > 0, "No users found in entities"
+
     user_df = pd.DataFrame(list(users.values()))
 
     if 'unique_id' in user_df.columns:

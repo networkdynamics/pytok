@@ -25,3 +25,4 @@ MANIFEST
 src
 .vscode
 .env
+tests/data

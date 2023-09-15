@@ -8,6 +8,10 @@ import tqdm
 
 LOGGER_NAME: str = "PyTok"
 
+def update_if_not_none(dict1, dict2):
+    dict1.update((k,v) for k,v in dict2.items() if v is not None)
+    return dict1
+
 def _get_comment_features(comment):
     comment_user = comment['user']
     if isinstance(comment_user, str):
@@ -268,7 +272,7 @@ def try_load_user_df_from_file(csv_path, file_paths=[]):
             
         user_df = get_user_df(entities)
         # protect against people with \r as nickname, how dare they
-        user_df.to_csv(csv_path, index=False, line_terminator="\r\n")
+        user_df.to_csv(csv_path, index=False, lineterminator="\r\n")
         return user_df
 
 def get_user_df(entities):
@@ -282,7 +286,7 @@ def get_user_df(entities):
 
                 user_id = user_info['unique_id']
                 if user_id in users:
-                    users[user_id].update((k,v) for k,v in user_info.items() if v is not None)
+                    users[user_id] = update_if_not_none(users[user_id], user_info)
                 else:
                     users[user_id] = user_info
 
@@ -295,7 +299,7 @@ def get_user_df(entities):
 
             user_id = user_info['uniqueId']
             if user_id in users:
-                users[user_id].update((k,v) for k,v in user_info.items() if v is not None)
+                users[user_id] = update_if_not_none(users[user_id], user_info)
             else:
                 users[user_id] = user_info
         
@@ -303,11 +307,23 @@ def get_user_df(entities):
             user_info = entity
             user_id = user_info['uniqueId']
             if user_id in users:
-                users[user_id].update((k,v) for k,v in user_info.items() if v is not None)
+                users[user_id] = update_if_not_none(users[user_id], user_info)
             else:
                 users[user_id] = user_info
 
-    user_df = pd.DataFrame(users.values())
+        elif 'userInfo' in entity:
+            user_info = entity['userInfo']['user']
+            user_info.update(entity['userInfo']['stats'])
+            user_id = user_info['uniqueId']
+            if user_id in users:
+                users[user_id] = update_if_not_none(users[user_id], user_info)
+            else:
+                users[user_id] = user_info
+
+        else:
+            raise ValueError("Unknown entity type")
+
+    user_df = pd.DataFrame(list(users.values()))
 
     if 'unique_id' in user_df.columns:
         user_df['uniqueId'] = user_df['unique_id'].combine_first(user_df['uniqueId'])

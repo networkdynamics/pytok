@@ -98,21 +98,27 @@ def get_comment_df(comments):
     comment_df['text'] = comment_df['text'].str.replace(r'\r',  ' ', regex=True)
     return comment_df
 
-def try_load_comment_df_from_file(csv_path, file_paths=[]):
+def try_load_comment_df_from_file(file_path, file_paths=[]):
+    assert file_path.endswith('.parquet.gzip') or file_path.endswith('.csv'), "File path must be a parquet or csv file"
 
-    if os.path.exists(csv_path):
-        comment_df = pd.read_csv(csv_path, dtype={'author_name': str, 'author_id': str, 'comment_id': str, 'video_id': str, 'reply_comment_id': str})
-        comment_df = comment_df[comment_df['text'].notna()]
-        comment_df = comment_df[comment_df['video_id'].notna()]
-        comment_df = comment_df[comment_df['mentions'].notna()]
+    if os.path.exists(file_path):
+        if file_path.endswith('.csv'):
+            comment_df = pd.read_csv(file_path)
+        elif file_path.endswith('.parquet.gzip'):
+            comment_df = pd.read_parquet(file_path)
+        comment_df[['comment_id', 'author_name', 'author_id', 'text', 'video_id', 'comment_language', 'reply_comment_id']] = comment_df[['comment_id', 'author_name', 'author_id', 'text', 'video_id', 'comment_language', 'reply_comment_id']].astype(str)
         comment_df['mentions'] = comment_df['mentions'].apply(_str_to_list)
         comment_df['createtime'] = pd.to_datetime(comment_df['createtime'])
     else:
         if not file_paths:
-            raise ValueError(f"CSV file: {csv_path} does not exist, and no file paths provided to generate dataframe")
+            raise ValueError(f"Parquet file: {file_path} does not exist, and no file paths provided to generate dataframe")
 
         comment_df = load_comment_df_from_files(file_paths)
-        comment_df.to_csv(csv_path, index=False)
+
+        if file_path.endswith('.csv'):
+            comment_df.to_csv(file_path, index=False)
+        elif file_path.endswith('.parquet.gzip'):
+            comment_df.to_parquet(file_path, compression='gzip', index=False)
 
     return comment_df
 
@@ -122,11 +128,15 @@ def _str_to_list(stri):
         return []
     return [word.strip()[1:-1] for word in stri[1:-1].split(',')]
 
-def try_load_video_df_from_file(csv_path, file_paths=[]):
-
-    if os.path.exists(csv_path):
-        video_df = pd.read_csv(csv_path, \
-            dtype={'author_name': str, 'author_id': str, 'video_id': str, 'share_video_id': str, 'share_video_user_id': str})
+def try_load_video_df_from_file(file_path, file_paths=[]):
+    assert file_path.endswith('.parquet.gzip') or file_path.endswith('.csv'), "File path must be a parquet or csv file"
+    if os.path.exists(file_path):
+        if file_path.endswith('.csv'):
+            video_df = pd.read_csv(file_path)
+        elif file_path.endswith('.parquet.gzip'):
+            video_df = pd.read_parquet(file_path)
+        
+        video_df[['video_id', 'author_name', 'author_id', 'desc', 'share_video_id', 'share_video_user_id', 'share_type']] = video_df[['video_id', 'author_name', 'author_id', 'desc', 'share_video_id', 'share_video_user_id', 'share_type']].astype(str)
         video_df['createtime'] = pd.to_datetime(video_df['createtime'])
         video_df['mentions'] = video_df['mentions'].apply(_str_to_list)
         video_df['hashtags'] = video_df['hashtags'].apply(_str_to_list)
@@ -134,7 +144,7 @@ def try_load_video_df_from_file(csv_path, file_paths=[]):
 
     else:
         if not file_paths:
-            raise ValueError(f"CSV file: {csv_path} does not exist, and no file paths provided to generate dataframe")
+            raise ValueError(f"File: {file_path} does not exist, and no file paths provided to generate dataframe")
 
         videos = []
         for file_path in file_paths:
@@ -149,7 +159,10 @@ def try_load_video_df_from_file(csv_path, file_paths=[]):
                 raise ValueError()
             
         video_df = get_video_df(videos)
-        video_df.to_csv(csv_path, index=False)
+        if file_path.endswith('.csv'):
+            video_df.to_csv(file_path, index=False)
+        elif file_path.endswith('.parquet.gzip'):
+            video_df.to_parquet(file_path, compression='gzip', index=False)
         return video_df
 
 def extract_video_features(video):
@@ -237,15 +250,20 @@ def get_video_df(videos):
         'share_video_id', 'share_video_user_id', 'share_video_user_name', 'share_type', 'mentions',
         'digg_count', 'share_count', 'comment_count', 'view_count'
     ])
-    video_df = video_df.drop_duplicates('video_id')
-    video_df = video_df[video_df['desc'].notna()]
     
     return video_df
 
 
-def try_load_user_df_from_file(csv_path, file_paths=[]):
-    if os.path.exists(csv_path):
-        user_df = pd.read_csv(csv_path)
+def try_load_user_df_from_file(file_path, file_paths=[]):
+    assert file_path.endswith('.parquet.gzip') or file_path.endswith('.csv'), "File path must be a parquet or csv file"
+
+    if os.path.exists(file_path):
+        if file_path.endswith('.csv'):
+            user_df = pd.read_csv(file_path)
+        elif file_path.endswith('.parquet.gzip'):
+            user_df = pd.read_parquet(file_path)
+
+        user_df['id'] = user_df['id'].astype(str)
         user_df['num_following'] = user_df['num_following'].astype('Int64')
         user_df['num_followers'] = user_df['num_followers'].astype('Int64')
         user_df['num_videos'] = user_df['num_videos'].astype('Int64')
@@ -255,7 +273,7 @@ def try_load_user_df_from_file(csv_path, file_paths=[]):
 
     else:
         if not file_paths:
-            raise ValueError(f"CSV file: {csv_path} does not exist, and no file paths provided to generate dataframe")
+            raise ValueError(f"File: {file_path} does not exist, and no file paths provided to generate dataframe")
 
         entities = []
         for file_path in tqdm.tqdm(file_paths):
@@ -272,7 +290,10 @@ def try_load_user_df_from_file(csv_path, file_paths=[]):
             
         user_df = get_user_df(entities)
         # protect against people with \r as nickname, how dare they
-        user_df.to_csv(csv_path, index=False, lineterminator="\r\n")
+        if file_path.endswith('.csv'):
+            user_df.to_csv(file_path, index=False, lineterminator="\r\n")
+        elif file_path.endswith('.parquet.gzip'):
+            user_df.to_parquet(file_path, compression='gzip', index=False)
         return user_df
 
 def get_user_df(entities):

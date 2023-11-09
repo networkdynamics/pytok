@@ -1,19 +1,12 @@
-import json
 import logging
 import os
-import threading
-import asyncio
-import random
 import re
-import string
 import time
-from typing import ClassVar, Optional
-from urllib import request
-from urllib.parse import quote, urlencode
+from typing import Optional
 
 import pyvirtualdisplay
-from selenium import webdriver
-import seleniumwire.undetected_chromedriver as uc
+from playwright.async_api import async_playwright
+from playwright_stealth import stealth_sync
 
 from .api.sound import Sound
 from .api.user import User
@@ -83,26 +76,34 @@ class PyTok:
 
         self.request_cache = {}
 
-        if self._headless:
-            self._display = pyvirtualdisplay.Display()
-            self._display.start()
-
-        options = uc.ChromeOptions()
-        options.add_argument('--ignore-ssl-errors=yes')
-        options.add_argument('--ignore-certificate-errors')
-        # options.page_load_strategy = 'eager'
         # if self._headless:
-        #     options.add_argument('--headless=new')
-        #     options.add_argument("--window-size=1920,1080")
-        kwargs = {"options": options}
-        if chromedriver_path:
-            kwargs["driver_executable_path"] = chromedriver_path
-        self._browser = uc.Chrome(**kwargs)
-        self._user_agent = self._browser.execute_script("return navigator.userAgent")
+        #     self._display = pyvirtualdisplay.Display()
+        #     self._display.start()
+
+        # options = uc.ChromeOptions()
+        # options.add_argument('--ignore-ssl-errors=yes')
+        # options.add_argument('--ignore-certificate-errors')
+        # # options.page_load_strategy = 'eager'
+
+    async def __aenter__(self):
+
+        self._playwright = await async_playwright().start()
+        self._browser = await self._playwright.chromium.launch(headless=self._headless)
+        self._page = await self._browser.new_page()
+        stealth_sync(self._page)
+
+        self._requests = []
+        self._responses = []
+
+        self._page.on("request", lambda request: self._requests.append(request))
+        self._page.on("response", lambda response: self._responses.append(response))
+
+        self._user_agent = self._page.evaluate("() => return navigator.userAgent")
+        self._is_context_manager = True
 
     def request_delay(self):
         if self._request_delay is not None:
-            time.sleep(self._request_delay)
+            self._page.wait_for_timeout(self._request_delay * 1000)
 
     
     def __del__(self):
@@ -123,20 +124,15 @@ class PyTok:
         if m:
             return m.group(1)
 
-    def shutdown(self) -> None:
+    async def shutdown(self) -> None:
         try:
-            self._browser.close()
+            await self._browser.close()
+            await self._playwright.stop()
         except Exception:
             pass
         finally:
-            if getattr(self, "_browser", None):
-                self._browser.quit()
             if self._headless:
                 self._display.stop()
 
-    def __enter__(self):
-        self._is_context_manager = True
-        return self
-
-    def __exit__(self, type, value, traceback):
+    def __aexit__(self, type, value, traceback):
         self.shutdown()

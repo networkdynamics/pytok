@@ -1,11 +1,8 @@
 import random
 
 import requests
-import seleniumwire
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException
+
+from playwright.async_api import expect
 
 from .. import exceptions
 
@@ -20,102 +17,117 @@ class Base:
         if request.response.status_code >= 300:
             raise exceptions.NotAvailableException("Content is not available")
 
-    def wait_for_content_or_captcha(self, content_tag):
-        driver = self.parent._browser
+    async def wait_for_content_or_captcha(self, content_tag):
+        page = self.parent._page
+
+        content_element = page.locator(f'[data-e2e={content_tag}]')
+        captcha_element = page.locator('captcha_verify_container')
         try:
-            element = WebDriverWait(driver, TOK_DELAY).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')), EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
-        except TimeoutException as e:
+            await expect(content_element.or_(captcha_element)).to_be_visible()
+            
+        except TimeoutError as e:
             raise exceptions.TimeoutException(str(e))
 
-        if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
+        if captcha_element.is_visible():
             if self.parent._headless:
                 raise exceptions.CaptchaException('Captcha was thrown, re-run with headless=False and solve the captcha.')
             else:
                 try:
-                    WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
-                    element = WebDriverWait(driver, TOK_DELAY).until(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')))
-                except TimeoutException as e:
+                    await expect(captcha_element).not_to_be_visible()
+                    await expect(content_element).to_be_visible()
+                except TimeoutError as e:
                     raise exceptions.TimeoutException(str(e))
 
-        return element
+        return content_element
 
-    def wait_for_content_or_unavailable_or_captcha(self, content_tag, unavailable_text):
-        driver = self.parent._browser
+    async def wait_for_content_or_unavailable_or_captcha(self, content_tag, unavailable_text):
+        page = self.parent._page
+        content_element = page.locator(f'[data-e2e={content_tag}]')
+        captcha_element = page.locator('captcha_verify_container')
+        unavailable_element = page.locator(f"//*[contains(text(), '{unavailable_text}')]")
         try:
-            element = WebDriverWait(driver, TOK_DELAY).until(EC.any_of(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')), 
-                                                                    EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container'))))
-        except TimeoutException as e:
-            if driver.find_elements(By.XPATH, f"//*[contains(text(), '{unavailable_text}')]"):
-                raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
-            else:
-                raise exceptions.TimeoutException(str(e))
+            await expect(content_element.or_(captcha_element).or_(unavailable_element)).to_be_visible()
+        except TimeoutError as e:
+            raise exceptions.TimeoutException(str(e))
+            
+        if unavailable_element.is_visible():
+            raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
 
-        if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
+        if captcha_element.is_visible():
             try:
-                WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
-                element = WebDriverWait(driver, TOK_DELAY).until(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={content_tag}]')))
-            except TimeoutException as e:
+                await expect(captcha_element).not_to_be_visible()
+                await expect(content_element).to_be_visible()
+            except TimeoutError as e:
                 raise exceptions.TimeoutException(str(e))
 
-        return element
+        return content_element
 
     def wait_for_requests(self, api_path, timeout=TOK_DELAY):
+        page = self.parent._page
         try:
-            self.parent._browser.wait_for_request(api_path, timeout=timeout)
-        except TimeoutException as e:
+            page.expect_request(api_path, timeout=timeout * 1000)
+        except TimeoutError as e:
             raise exceptions.TimeoutException(str(e))
 
     def get_requests(self, api_path):
-        return [request for request in self.parent._browser.requests if api_path in request.url and request.response is not None]
+        return [request for request in self.parent._requests if api_path in request.url and request.response is not None]
 
     def get_response_body(self, request, decode=True):
-        body_bytes = seleniumwire.utils.decode(request.response.body, request.response.headers.get('Content-Encoding', 'identity'))
+        body_bytes = request.response.text()
         if decode:
             return body_bytes.decode('utf-8')
         else:
             return body_bytes
 
-    def scroll_to_bottom(self, speed=4):
-        current_scroll_position = self.parent._browser.execute_script("return document.documentElement.scrollTop || document.body.scrollTop;")
+    async def scroll_to_bottom(self, speed=4):
+        page = self.parent._page
+        current_scroll_position = await page.evaluate("() => return document.documentElement.scrollTop || document.body.scrollTop;")
         new_height = current_scroll_position + 1
         while current_scroll_position <= new_height:
             current_scroll_position += speed + random.randint(-speed, speed)
-            self.parent._browser.execute_script(f"window.scrollTo(0, {current_scroll_position});")
-            new_height = self.parent._browser.execute_script("return document.body.scrollHeight;")
+            await page.evaluate(f"() => window.scrollTo(0, {current_scroll_position});")
+            new_height = await page.evaluate("() => return document.body.scrollHeight;")
 
-    def scroll_to(self, position, speed=5):
-        current_scroll_position = self.parent._browser.execute_script("return document.documentElement.scrollTop || document.body.scrollTop;")
+    async def scroll_to(self, position, speed=5):
+        page = self.parent._page
+        current_scroll_position = await page.evaluate("() => return document.documentElement.scrollTop || document.body.scrollTop;")
         new_height = current_scroll_position + 1
         while current_scroll_position <= new_height:
             current_scroll_position += speed + random.randint(-speed, speed)
-            self.parent._browser.execute_script(f"window.scrollTo(0, {current_scroll_position});")
-            new_height = self.parent._browser.execute_script("return document.body.scrollHeight;")
+            await page.evaluate(f"() => window.scrollTo(0, {current_scroll_position});")
+            new_height = await page.evaluate("() => return document.body.scrollHeight;")
             if current_scroll_position > position:
                 break
 
-    def slight_scroll_up(self, speed=4):
+    async def slight_scroll_up(self, speed=4):
+        page = self.parent._page
         desired_scroll = -500
         current_scroll = 0
         while current_scroll > desired_scroll:
             current_scroll -= speed + random.randint(-speed, speed)
-            self.parent._browser.execute_script(f"window.scrollBy(0, {-speed});")
+            await page.evaluate(f"() => window.scrollBy(0, {-speed});")
 
-    def wait_until_not_skeleton_or_captcha(self, skeleton_tag):
-        driver = self.parent._browser
+    async def wait_until_not_skeleton_or_captcha(self, skeleton_tag):
+        page = self.parent._page
+        content = page.locator(f'[data-e2e={skeleton_tag}]')
         try:
-            WebDriverWait(driver, TOK_DELAY).until_not(EC.presence_of_element_located((By.CSS_SELECTOR, f'[data-e2e={skeleton_tag}]')))
-        except TimeoutException as e:
-            if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
-                WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
+            await expect(content).not_to_be_visible()
+        except TimeoutError as e:
+            if page.locator('captcha_verify_container').is_visible():
+                if self.parent._headless:
+                    raise exceptions.CaptchaException('Captcha was thrown, re-run with headless=False and solve the captcha.')
+                else:
+                    await expect(page.locator('captcha_verify_container')).not_to_be_visible()
             else:
                 raise exceptions.TimeoutException(str(e))
 
-    def check_and_wait_for_captcha(self):
-        driver = self.parent._browser
-        if driver.find_elements(By.CLASS_NAME, 'captcha_verify_container'):
-            try:
-                WebDriverWait(driver, CAPTCHA_DELAY).until_not(EC.presence_of_element_located((By.CLASS_NAME, 'captcha_verify_container')))
-            except TimeoutException as e:
-                raise exceptions.TimeoutException(str(e))
-        else:
-            raise exceptions.TikTokException("Captcha requested but not found in browser")
+    async def check_and_wait_for_captcha(self):
+        page = self.parent._page
+        if page.locator('captcha_verify_container').is_visible():
+            if self.parent._headless:
+                raise exceptions.CaptchaException('Captcha was thrown, re-run with headless=False and solve the captcha.')
+            else:
+                try:
+                    await expect(page.locator('captcha_verify_container')).not_to_be_visible()
+                except TimeoutError as e:
+                    raise exceptions.TimeoutException(str(e))

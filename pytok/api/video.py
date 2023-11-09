@@ -107,7 +107,7 @@ class Video(Base):
     def _get_url(self) -> str:
         return f"https://www.tiktok.com/@{self.username}/video/{self.id}"
 
-    def view(self, **kwargs) -> None:
+    async def view(self, **kwargs) -> None:
         """
         Opens the TikTok Video in your default browser.
 
@@ -116,9 +116,9 @@ class Video(Base):
         api.video(id='7041997751718137094').view()
         ```
         """
-        driver = self.parent._browser
+        page = self.parent._page
         url = self._get_url()
-        driver.get(url)
+        await page.goto(url)
         self.check_initial_call(url)
         # TODO check with something else, sometimes no comments so this breaks
         self.wait_for_content_or_unavailable_or_captcha('comment-level-1', 'Video currently unavailable')
@@ -257,7 +257,8 @@ class Video(Base):
                 self._get_comment_replies(comment, batch_size)
 
             amount_yielded += len(all_comments)
-            yield from all_comments
+            for comment in all_comments:
+                yield comment
 
             if finished:
                 return
@@ -284,7 +285,8 @@ class Video(Base):
                     self._get_comment_replies(comment, batch_size)
 
                 amount_yielded += len(comments)
-                yield from comments
+                for comment in comments:
+                    yield comment
 
             has_more = res.get("has_more")
             if has_more != 1:

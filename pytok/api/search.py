@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from ..tiktok import PyTok
 
 import requests
-from selenium.common.exceptions import TimeoutException
+from playwright.async_api import TimeoutError
 
 class Search(Base):
     """Contains static methods about searching."""
@@ -63,7 +63,7 @@ class Search(Base):
             "user", count=count, offset=offset, **kwargs
         )
 
-    def search_type(self, obj_type, count=28, offset=0, **kwargs) -> Iterator:
+    async def search_type(self, obj_type, count=28, offset=0, **kwargs) -> Iterator:
         """
         Searches for users using an alternate endpoint than Search.users
 
@@ -85,10 +85,10 @@ class Search(Base):
         else:
             raise TypeError("invalid obj_type")
 
-        driver = Search.parent._browser
+        page = self.parent._page
 
         url = f"https://{subdomain}.tiktok.com/search/{subpath}?q={self.search_term}"
-        driver.get(url)
+        await page.goto(url)
 
         self.wait_for_content_or_captcha('search_video-item')
 
@@ -131,7 +131,7 @@ class Search(Base):
 
                 try:
                     load_more_button = self.wait_for_content_or_captcha('search-load-more')
-                except TimeoutException:
+                except TimeoutError:
                     return
 
                 load_more_button.click()

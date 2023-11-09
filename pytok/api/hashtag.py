@@ -10,10 +10,6 @@ import time
 from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
 
 import requests
-import seleniumwire
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
 
 if TYPE_CHECKING:
     from ..tiktok import PyTok
@@ -74,7 +70,7 @@ class Hashtag(Base):
         """
         raise NotImplementedError()
 
-    def videos(self, count=30, offset=0, **kwargs) -> Iterator[Video]:
+    async def videos(self, count=30, offset=0, **kwargs) -> Iterator[Video]:
         """Returns a dictionary listing TikToks with a specific hashtag.
 
         - Parameters:
@@ -87,10 +83,10 @@ class Hashtag(Base):
             # do something
         ```
         """
-        driver = self.parent._browser
+        page = self.parent._page
 
         url = f"https://www.tiktok.com/tag/{self.name}"
-        driver.get(url)
+        await page.goto(url)
 
         self.wait_for_content_or_captcha('challenge-item')
 

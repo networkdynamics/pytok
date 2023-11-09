@@ -1,5 +1,5 @@
 requests
-selenium_stealth
-selenium-wire
-undetected-chromedriver
+playwright
+undetected-playwright
 pyvirtualdisplay
+opencv-python

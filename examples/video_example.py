@@ -2,12 +2,16 @@ import asyncio
 
 from pytok.tiktok import PyTok
 
+username = 'therock'
+id = '7296444945991224622'
+
 async def main():
     async with PyTok() as api:
-        video = api.video(id="7041997751718137094")
+        video = api.video(username=username, id=id)
 
         # Bytes of the TikTok video
-        video_data = video.info_full()
+        video_data = await video.info()
+        video_bytes = await video.bytes()
 
         with open("out.json", "w") as out_file:
             out_file.write(video_data)

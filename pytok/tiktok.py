@@ -6,7 +6,7 @@ from typing import Optional
 
 import pyvirtualdisplay
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth_sync
+from playwright_stealth import stealth_async
 
 from .api.sound import Sound
 from .api.user import User
@@ -17,6 +17,7 @@ from .api.trending import Trending
 
 from .exceptions import *
 from .utils import LOGGER_NAME
+from .captcha_solver import CaptchaSolver
 from dataclasses import dataclass
 
 os.environ["no_proxy"] = "127.0.0.1,localhost"
@@ -40,8 +41,6 @@ class PyTok:
         logging_level: int = logging.WARNING,
         request_delay: Optional[int] = 0,
         headless: Optional[bool] = False,
-        chromedriver_path: Optional[str] = None,
-        chrome_version: Optional[int] = 102
     ):
         """The PyTok class. Used to interact with TikTok. This is a singleton
             class to prevent issues from arising with playwright
@@ -61,7 +60,6 @@ class PyTok:
         """
 
         self._headless = headless
-        self._chrome_version = chrome_version
         self._request_delay = request_delay
 
         self.logger.setLevel(logging_level)
@@ -86,11 +84,12 @@ class PyTok:
         # # options.page_load_strategy = 'eager'
 
     async def __aenter__(self):
-
         self._playwright = await async_playwright().start()
+        device_config = self._playwright.devices['Desktop Chrome']
         self._browser = await self._playwright.chromium.launch(headless=self._headless)
-        self._page = await self._browser.new_page()
-        stealth_sync(self._page)
+        self._context = await self._browser.new_context(**device_config)
+        self._page = await self._context.new_page()
+        await stealth_async(self._page)
 
         self._requests = []
         self._responses = []
@@ -98,12 +97,13 @@ class PyTok:
         self._page.on("request", lambda request: self._requests.append(request))
         self._page.on("response", lambda response: self._responses.append(response))
 
-        self._user_agent = self._page.evaluate("() => return navigator.userAgent")
+        self._user_agent = await self._page.evaluate("() => navigator.userAgent")
         self._is_context_manager = True
+        return self
 
-    def request_delay(self):
+    async def request_delay(self):
         if self._request_delay is not None:
-            self._page.wait_for_timeout(self._request_delay * 1000)
+            await self._page.wait_for_timeout(self._request_delay * 1000)
 
     
     def __del__(self):
@@ -126,13 +126,27 @@ class PyTok:
 
     async def shutdown(self) -> None:
         try:
+            await self._context.close()
             await self._browser.close()
             await self._playwright.stop()
         except Exception:
             pass
         finally:
             if self._headless:
-                self._display.stop()
+                display = getattr(self, "_display", None)
+                if display:
+                    display.stop()
 
-    def __aexit__(self, type, value, traceback):
-        self.shutdown()
+    async def __aexit__(self, type, value, traceback):
+        await self.shutdown()
+
+    async def get_ms_tokens(self):
+        all_cookies = await self._context.cookies()
+        cookie_name = 'msToken'
+        cookies = []
+        for cookie in all_cookies:
+            if cookie["name"] == cookie_name and cookie['secure']:
+                cookies.append(cookie['value'])
+        if len(cookies) == 0:
+            raise Exception(f"Could not find {cookie_name} cookie")
+        return cookies

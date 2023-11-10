@@ -1,101 +1,105 @@
+import asyncio
 import random
-
-import requests
 
 from playwright.async_api import expect
 
-from .. import exceptions
+from .. import exceptions, captcha_solver
 
 TOK_DELAY = 30
 CAPTCHA_DELAY = 999999
 
 class Base:
 
-    def check_initial_call(self, url):
-        self.wait_for_requests(url)
-        request = self.get_requests(url)[0]
-        if request.response.status_code >= 300:
-            raise exceptions.NotAvailableException("Content is not available")
+    async def check_initial_call(self, url):
+        async with self.wait_for_requests(url) as event:
+            response = await event.value.response()
+            if response.status >= 300:
+                raise exceptions.NotAvailableException("Content is not available")
 
     async def wait_for_content_or_captcha(self, content_tag):
         page = self.parent._page
 
-        content_element = page.locator(f'[data-e2e={content_tag}]')
-        captcha_element = page.locator('captcha_verify_container')
+        content_element = page.locator(content_tag).first
+        # content_element = page.get_by_text('Videos', exact=True)
+        captcha_element = page.get_by_text('Verify to continue:', exact=True)
+
         try:
-            await expect(content_element.or_(captcha_element)).to_be_visible()
+            await expect(content_element.or_(captcha_element)).to_be_visible(timeout=TOK_DELAY * 1000)
             
         except TimeoutError as e:
             raise exceptions.TimeoutException(str(e))
 
-        if captcha_element.is_visible():
-            if self.parent._headless:
-                raise exceptions.CaptchaException('Captcha was thrown, re-run with headless=False and solve the captcha.')
-            else:
-                try:
-                    await expect(captcha_element).not_to_be_visible()
-                    await expect(content_element).to_be_visible()
-                except TimeoutError as e:
-                    raise exceptions.TimeoutException(str(e))
+        captcha_visible = await captcha_element.is_visible()
+        if captcha_visible:
+            await self.solve_captcha()
+            await expect(content_element).to_be_visible(timeout=TOK_DELAY * 1000)
 
         return content_element
 
     async def wait_for_content_or_unavailable_or_captcha(self, content_tag, unavailable_text):
         page = self.parent._page
-        content_element = page.locator(f'[data-e2e={content_tag}]')
-        captcha_element = page.locator('captcha_verify_container')
-        unavailable_element = page.locator(f"//*[contains(text(), '{unavailable_text}')]")
+        content_element = page.locator(content_tag).first
+        captcha_element = page.get_by_text('Verify to continue:', exact=True)
+        unavailable_element = page.get_by_text(unavailable_text, exact=True)
         try:
-            await expect(content_element.or_(captcha_element).or_(unavailable_element)).to_be_visible()
+            await expect(content_element.or_(captcha_element).or_(unavailable_element)).to_be_visible(timeout=TOK_DELAY * 1000)
         except TimeoutError as e:
             raise exceptions.TimeoutException(str(e))
-            
-        if unavailable_element.is_visible():
+
+        if await captcha_element.is_visible():
+            await self.solve_captcha()
+            await expect(content_element.or_(unavailable_element)).to_be_visible(timeout=TOK_DELAY * 1000)
+
+        if await unavailable_element.is_visible():
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
 
-        if captcha_element.is_visible():
-            try:
-                await expect(captcha_element).not_to_be_visible()
-                await expect(content_element).to_be_visible()
-            except TimeoutError as e:
-                raise exceptions.TimeoutException(str(e))
-
         return content_element
+
+    async def check_for_unavailable_or_captcha(self, unavailable_text):
+        page = self.parent._page
+        captcha_element = page.get_by_text('Verify to continue:', exact=True)
+        unavailable_element = page.get_by_text(unavailable_text, exact=True)
+
+        if await captcha_element.is_visible():
+            await self.solve_captcha()
+
+        if await unavailable_element.is_visible():
+            raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
+
 
     def wait_for_requests(self, api_path, timeout=TOK_DELAY):
         page = self.parent._page
         try:
-            page.expect_request(api_path, timeout=timeout * 1000)
+            return page.expect_request(api_path, timeout=timeout * 1000)
         except TimeoutError as e:
             raise exceptions.TimeoutException(str(e))
 
     def get_requests(self, api_path):
-        return [request for request in self.parent._requests if api_path in request.url and request.response is not None]
+        return [request for request in self.parent._requests if api_path in request.url]
+    
+    def get_responses(self, api_path):
+        return [response for response in self.parent._responses if api_path in response.url]
 
-    def get_response_body(self, request, decode=True):
-        body_bytes = request.response.text()
-        if decode:
-            return body_bytes.decode('utf-8')
-        else:
-            return body_bytes
+    async def get_response_body(self, response):
+        return await response.text()
 
     async def scroll_to_bottom(self, speed=4):
         page = self.parent._page
-        current_scroll_position = await page.evaluate("() => return document.documentElement.scrollTop || document.body.scrollTop;")
+        current_scroll_position = await page.evaluate("() => document.documentElement.scrollTop || document.body.scrollTop;")
         new_height = current_scroll_position + 1
         while current_scroll_position <= new_height:
             current_scroll_position += speed + random.randint(-speed, speed)
             await page.evaluate(f"() => window.scrollTo(0, {current_scroll_position});")
-            new_height = await page.evaluate("() => return document.body.scrollHeight;")
+            new_height = await page.evaluate("() => document.body.scrollHeight;")
 
     async def scroll_to(self, position, speed=5):
         page = self.parent._page
-        current_scroll_position = await page.evaluate("() => return document.documentElement.scrollTop || document.body.scrollTop;")
+        current_scroll_position = await page.evaluate("() => document.documentElement.scrollTop || document.body.scrollTop;")
         new_height = current_scroll_position + 1
         while current_scroll_position <= new_height:
             current_scroll_position += speed + random.randint(-speed, speed)
             await page.evaluate(f"() => window.scrollTo(0, {current_scroll_position});")
-            new_height = await page.evaluate("() => return document.body.scrollHeight;")
+            new_height = await page.evaluate("() => document.body.scrollHeight;")
             if current_scroll_position > position:
                 break
 
@@ -113,21 +117,52 @@ class Base:
         try:
             await expect(content).not_to_be_visible()
         except TimeoutError as e:
-            if page.locator('captcha_verify_container').is_visible():
-                if self.parent._headless:
-                    raise exceptions.CaptchaException('Captcha was thrown, re-run with headless=False and solve the captcha.')
-                else:
-                    await expect(page.locator('captcha_verify_container')).not_to_be_visible()
+            captcha_element = page.get_by_text('Verify to continue:', exact=True)
+            if await captcha_element.is_visible():
+                await self.solve_captcha()
             else:
                 raise exceptions.TimeoutException(str(e))
 
     async def check_and_wait_for_captcha(self):
         page = self.parent._page
-        if page.locator('captcha_verify_container').is_visible():
-            if self.parent._headless:
-                raise exceptions.CaptchaException('Captcha was thrown, re-run with headless=False and solve the captcha.')
-            else:
-                try:
-                    await expect(page.locator('captcha_verify_container')).not_to_be_visible()
-                except TimeoutError as e:
-                    raise exceptions.TimeoutException(str(e))
+        captcha_element = page.get_by_text('Verify to continue:', exact=True)
+        captcha_visible = await captcha_element.is_visible()
+        if captcha_visible:
+            await self.solve_captcha()
+
+    async def check_and_close_signin(self):
+        page = self.parent._page
+        signin_visible = await page.get_by_text('Sign in', exact=True).is_visible()
+        if signin_visible:
+            await page.click('text=Not now')
+                
+    async def solve_captcha(self):
+        request = self.get_requests('/captcha/get')[0]
+        captcha_response = await request.response()
+        captcha_json = await captcha_response.json()
+        captcha_type = captcha_json['data']['mode']
+        if captcha_type != 'slide':
+            raise exceptions.CaptchaException(f"Unsupported captcha type: {captcha_type}")
+        
+        puzzle_req = self.get_requests(captcha_json['data']['question']['url1'])[0]
+        puzzle_response = await puzzle_req.response()
+        puzzle = await puzzle_response.body()
+
+        if not puzzle:
+            raise exceptions.CaptchaException("Puzzle was not found in response")
+
+        piece_req = self.get_requests(captcha_json['data']['question']['url2'])[0]
+        piece_response = await piece_req.response()
+        piece = await piece_response.body()
+
+        if not piece:
+            raise exceptions.CaptchaException("Piece was not found in response")
+
+        await captcha_solver.CaptchaSolver(captcha_response, puzzle, piece).solve_captcha()
+
+        await asyncio.sleep(1)
+        page = self.parent._page
+        await page.reload()
+        captcha_element = page.get_by_text('Verify to continue:', exact=True)
+        await expect(captcha_element).not_to_be_visible()
+

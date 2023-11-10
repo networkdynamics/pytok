@@ -93,22 +93,34 @@ class User(Base):
         page = self.parent._page
 
         url = f"https://www.tiktok.com/@{self.username}"
-        if page.current_url != url:
-            await page.goto(url)
-            self.check_initial_call(url)
-        self.wait_for_content_or_captcha('user-post-item')
+        if page.url != url:
+            async with page.expect_request(url) as event:
+                await page.goto(url)
+                request = await event.value
+                response = await request.response()
+                if response.status >= 300:
+                    raise NotAvailableException("Content is not available")
 
-        # get initial html data
-        html_req_path = f"@{self.username}"
-        initial_html_request = self.get_requests(html_req_path)[0]
-        html_body = self.get_response_body(initial_html_request)
-        tag_contents = extract_tag_contents(html_body)
-        data = json.loads(tag_contents)
+        await self.wait_for_content_or_captcha('css=[data-e2e=user-post-item]')
 
-        user = data["UserModule"]["users"][self.username] | data["UserModule"]["stats"][self.username]
+        data_responses = self.get_responses('api/user/detail')
+        
+        if len(data_responses) > 0:
+            data_response = data_responses[-1]
+            data = await data_response.json()
+            user = data["userInfo"]
+        else:
+            # get initial html data
+            html_body = await page.content()
+            tag_contents = extract_tag_contents(html_body)
+            data = json.loads(tag_contents)
+
+            user = data["UserModule"]["users"][self.username] | data["UserModule"]["stats"][self.username]
+
+        self.as_dict = user
         return user
 
-    def videos(self, count=None, batch_size=100, **kwargs) -> Iterator[Video]:
+    async def videos(self, count=None, batch_size=100, **kwargs) -> Iterator[Video]:
         """
         Returns an iterator yielding Video objects.
 
@@ -123,33 +135,52 @@ class User(Base):
             # do something
         ```
         """
-        use_scraping = True
-
-        if use_scraping:
-            for video in self._get_videos_scraping(count):
+        try:
+            async for video in self._get_videos_api(count, batch_size, **kwargs):
                 yield video
-        else:
-            for video in self._get_videos_api(count, batch_size, **kwargs):
+        except ApiFailedException:
+            async for video in self._get_videos_scraping(count):
                 yield video
 
 
-    def _get_videos_api(self, count, batch_size, **kwargs) -> Iterator[Video]:
+    async def _get_videos_api(self, count, batch_size, **kwargs) -> Iterator[Video]:
         amount_yielded = 0
         cursor = 0
         final_cursor = 9999999999999999999999999999999
 
         all_scraping = True
         if all_scraping or 'videos' not in self.parent.request_cache:
-            all_videos, finished, final_cursor = self._get_videos_and_req(count, all_scraping)
+            all_videos, finished, final_cursor = await self._get_api_videos_and_req(count)
 
             amount_yielded += len(all_videos)
             for video in all_videos:
-                yield video
+                yield self.parent.video(data=video)
 
             if finished:
                 return
 
         data_request = self.parent.request_cache['videos']
+
+        video_ids = set(v['id'] for v in all_videos)
+
+        try:
+            count = min(count, self.as_dict['stats']['videoCount'])
+            next_url = add_if_not_replace(data_request.url, "count=([0-9]+)", f"count={count}", f"&count={count}")
+            r = requests.get(next_url, headers=data_request.headers)
+
+            if r.status_code != 200:
+                raise ApiFailingException(f"Failed to get videos from API with status code {r.status_code}")
+
+            res = r.json()
+            videos = res.get('itemList', [])
+            for video in videos:
+                if video['id'] not in video_ids:
+                    yield self.parent.video(data=video)
+
+            return
+        except Exception:
+            print("Failed to get videos all at once, trying in batches...")
+            pass
 
         while amount_yielded < count and cursor < final_cursor:
             
@@ -162,7 +193,7 @@ class User(Base):
 
             if res.get('type') == 'verify':
                 # force new request for cache
-                self._get_videos_and_req()
+                self._get_api_videos_and_req(count - amount_yielded)
 
             videos = res.get('itemList', [])
             cursor = int(res['cursor'])
@@ -181,14 +212,34 @@ class User(Base):
 
             self.parent.request_delay()
 
+    async def _get_api_videos_and_req(self, count):
+        all_videos = []
+
+        video_responses = self.get_responses('api/post/item_list')
+        for video_response in video_responses:
+            try:
+                video_data = await video_response.json()
+                if video_data.get('itemList'):
+                    videos = video_data['itemList']
+                    all_videos += videos
+                    finished = video_data.get('hasMore') is False
+                    final_cursor = int(video_data['cursor'])
+                    break
+            except Exception:
+                pass
+
+        self.parent.request_cache['videos'] = video_responses[-1]
+
+        return all_videos, finished, final_cursor
+
     async def _get_videos_scraping(self, count):
         page = self.parent._page
 
         url = f"https://www.tiktok.com/@{self.username}"
-        if page.current_url != url:
+        if page.url != url:
             await page.goto(url)
             self.check_initial_call(url)
-        self.wait_for_content_or_captcha('user-post-item')
+        await self.wait_for_content_or_captcha('user-post-item')
 
         video_pull_method = 'scroll'
         if video_pull_method == 'scroll':
@@ -209,7 +260,7 @@ class User(Base):
         all_videos = []
 
         while still_more:
-            html_req_path = page.current_url
+            html_req_path = page.url
             initial_html_request = self.get_requests(html_req_path)[0]
             html_body = self.get_response_body(initial_html_request)
             tag_contents = extract_tag_contents(html_body)

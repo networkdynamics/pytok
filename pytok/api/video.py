@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from .base import Base
 from ..helpers import extract_tag_contents, add_if_not_replace
+from .. import exceptions
 
 
 class Video(Base):
@@ -118,10 +119,14 @@ class Video(Base):
         """
         page = self.parent._page
         url = self._get_url()
-        await page.goto(url)
-        self.check_initial_call(url)
+        async with page.expect_request(url) as event:
+            await page.goto(url)
+            request = await event.value
+            response = await request.response()
+            if response.status >= 300:
+                raise exceptions.NotAvailableException("Content is not available")
         # TODO check with something else, sometimes no comments so this breaks
-        self.wait_for_content_or_unavailable_or_captcha('comment-level-1', 'Video currently unavailable')
+        await self.check_for_unavailable_or_captcha('Video currently unavailable')
 
     def bytes(self, **kwargs) -> bytes:
         """
@@ -143,72 +148,46 @@ class Video(Base):
             raise Exception("No requests found for video")
         return self.get_response_body(reqs[0], decode=False)
 
-    def _get_comments_and_req(self, count):
-        self.view()
-
-        # get initial html data
-        html_request_path = f"@{self.username}/video/{self.id}"
-        initial_html_request = self.get_requests(html_request_path)[0]
-        html_body = self.get_response_body(initial_html_request)
-        contents = extract_tag_contents(html_body)
-        res = json.loads(contents)
+    async def _get_comments_and_req(self, count):
+        # get request
+        data_request_path = "api/comment/list"
+        data_responses = self.get_responses(data_request_path)
 
         amount_yielded = 0
         all_comments = []
+        processed_urls = []
 
-        if 'CommentItem' in res:
-            comments = list(res['CommentItem'].values())
+        valid_data_request = None
+        for data_response in data_responses:
+            try:
+                res = await data_response.json()
 
-            comment_users = res['UserModule']['users']
-            for comment in comments:
-                comment['user'] = comment_users[comment['user']]
+                valid_data_request = data_response.request
 
-            amount_yielded += len(comments)
-            all_comments += comments
+                processed_urls.append(data_response.url)
+        
+                comments = res.get("comments", [])
 
-            if amount_yielded >= count:
-                return all_comments, True
+                amount_yielded += len(comments)
+                all_comments += comments
 
-            has_more = res['Comment']['hasMore']
-            if not has_more:
-                self.parent.logger.info(
-                    "TikTok isn't sending more TikToks beyond this point."
-                )
-                return all_comments, True
-            
+                if amount_yielded > count:
+                    return all_comments, True
 
-        data_request_path = "api/comment/list"
-        # scroll down to induce request
-        self.scroll_to_bottom()
-        self.wait_for_requests(data_request_path)
+                has_more = res.get("has_more")
+                if has_more != 1:
+                    self.parent.logger.info(
+                        "TikTok isn't sending more TikToks beyond this point."
+                    )
+                    return all_comments, True
+            except Exception:
+                pass
 
-        # get request
-        data_requests = self.get_requests(data_request_path)
+        self.parent.request_cache['comments'] = valid_data_request
 
-        for data_request in data_requests:
-            res_body = self.get_response_body(data_request)
+        return all_comments, processed_urls, False
 
-            res = json.loads(res_body)
-            comments = res.get("comments", [])
-
-            amount_yielded += len(comments)
-            all_comments += comments
-
-            if amount_yielded > count:
-                return all_comments, True
-
-            has_more = res.get("has_more")
-            if has_more != 1:
-                self.parent.logger.info(
-                    "TikTok isn't sending more TikToks beyond this point."
-                )
-                return all_comments, True
-
-        self.parent.request_cache['comments'] = data_request
-
-        return all_comments, False
-
-    def _get_comment_replies(self, comment, batch_size):
+    async def _get_comment_replies(self, comment, batch_size):
         data_request = self.parent.request_cache['comments']
         num_already_fetched = len(comment.get('reply_comment', []) if comment.get('reply_comment', []) is not None else [])
         num_comments_to_fetch = comment['reply_comment_total'] - num_already_fetched
@@ -240,21 +219,22 @@ class Video(Base):
                 )
                 break
 
-            self.parent.request_delay()
+            await self.parent.request_delay()
 
             num_already_fetched = len(comment['reply_comment'])
             num_comments_to_fetch = comment['reply_comment_total'] - num_already_fetched
 
-    def comments(self, count=200, batch_size=100):
-
+    async def comments(self, count=200, batch_size=100):
+        await self.view()
+        await self.wait_for_content_or_unavailable_or_captcha('css=[data-e2e=comment-level-1]', 'Be the first to comment!')
         # TODO allow multi layer comment fetch
 
         amount_yielded = 0
         if 'comments' not in self.parent.request_cache:
-            all_comments, finished = self._get_comments_and_req(count)
+            all_comments, processed_urls, finished = await self._get_comments_and_req(count)
 
             for comment in all_comments:
-                self._get_comment_replies(comment, batch_size)
+                await self._get_comment_replies(comment, batch_size)
 
             amount_yielded += len(all_comments)
             for comment in all_comments:
@@ -262,8 +242,96 @@ class Video(Base):
 
             if finished:
                 return
+            
+        comment_ids = set(comment['cid'] for comment in all_comments)
+        try:
+            async for comment in self._get_api_comments(count, batch_size, comment_ids):
+                yield comment
+        except exceptions.ApiFailedException:
+            async for comment in self._get_scroll_comments(count, amount_yielded, processed_urls):
+                yield comment
 
+    async def _get_scroll_comments(self, count, amount_yielded, processed_urls):
+        page = self.parent._page
+        tries = 0
+
+        data_request_path = "api/comment/list"
+        while amount_yielded < count:
+            # scroll down to induce request
+            await self.scroll_to(10000)
+            await self.slight_scroll_up()
+            await self.check_and_wait_for_captcha()
+            await self.check_and_close_signin()
+
+            data_responses = self.get_responses(data_request_path)
+            data_responses = [data_response for data_response in data_responses if data_response.url not in processed_urls]
+
+            if len(data_responses) == 0:
+                if tries > 5:
+                    print(f"Not sending anymore!")
+                    break
+                tries += 1
+
+            for data_response in data_responses:
+                try:
+                    res = await data_response.json()
+
+                    processed_urls.append(data_response.url)
+            
+                    comments = res.get("comments", [])
+
+                    amount_yielded += len(comments)
+                    for comment in comments:
+                        yield comment
+
+                    if amount_yielded > count:
+                        return
+
+                    has_more = res.get("has_more")
+                    if has_more != 1:
+                        self.parent.logger.info(
+                            "TikTok isn't sending more TikToks beyond this point."
+                        )
+                        return
+                except Exception as e:
+                    processed_urls.append(data_response.url)
+
+    async def _get_api_comments(self, count, batch_size, comment_ids):
+    
         data_request = self.parent.request_cache['comments']
+
+        # try getting all at once
+        retries = 5
+        for _ in range(retries):
+            try:
+                next_url = add_if_not_replace(data_request.url, "count=([0-9]+)", f"count={count}", f"&count={count}")
+                r = requests.get(next_url, headers=data_request.headers)
+
+                if r.status_code != 200:
+                    raise Exception(f"Failed to get comments with status code {r.status_code}")
+
+                if len(r.content) == 0:
+                    raise Exception("No content in response")
+
+                res = r.json()
+
+                comments = res.get("comments", [])
+                for comment in comments:
+                    if comment['cid'] not in comment_ids:
+                        try:
+                            await self._get_comment_replies(comment, batch_size)
+                        except Exception:
+                            pass
+                        yield comment
+
+                return
+            except Exception as e:
+                pass
+        else:
+            print("Failed to get all comments at once")
+            print("Trying batched...")
+
+        amount_yielded = len(comment_ids)
 
         while amount_yielded < count:
             
@@ -272,6 +340,14 @@ class Video(Base):
             next_url = add_if_not_replace(next_url, "count=([0-9]+)", f"count={batch_size}", f"&count={batch_size}")
 
             r = requests.get(next_url, headers=data_request.headers)
+
+            if r.status_code != 200:
+                raise Exception(f"Failed to get comments with status code {r.status_code}")
+
+            if len(r.content) == 0:
+                print("Failed to comments from API, switching to scroll")
+                raise exceptions.ApiFailedException("No content in response")
+
             res = r.json()
 
             if res.get('type') == 'verify':

@@ -30,3 +30,6 @@ class NotAvailableException(TikTokException):
 
 class TimeoutException(TikTokException):
     """Timed out trying to get content from TikTok"""
+
+class ApiFailedException(TikTokException):
+    """TikTok API is failing"""

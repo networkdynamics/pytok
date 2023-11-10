@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 from pytok.tiktok import PyTok
@@ -11,11 +12,15 @@ videos = [
     }
 ]
 
-with PyTok(chrome_version=104) as api:
-    for video in videos:
-        comments = []
-        for comment in api.video(id=video['id'], username=video['author']['uniqueId']).comments(count=1000):
-            comments.append(comment)
+async def main():
+    async with PyTok(headless=True) as api:
+        for video in videos:
+            comments = []
+            async for comment in api.video(id=video['id'], username=video['author']['uniqueId']).comments(count=1000):
+                comments.append(comment)
 
-        with open("out.json", "w") as f:
-            json.dump(comments, f)
+            with open("out.json", "w") as f:
+                json.dump(comments, f)
+
+if __name__ == "__main__":
+    asyncio.run(main())

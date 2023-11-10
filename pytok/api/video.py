@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from urllib.parse import urlparse
+import asyncio
+from urllib import parse as url_parsers
 from ..helpers import extract_video_id_from_url, extract_user_id_from_url
 from typing import TYPE_CHECKING, ClassVar, Optional
 from datetime import datetime
@@ -19,6 +20,13 @@ from .base import Base
 from ..helpers import extract_tag_contents, add_if_not_replace
 from .. import exceptions
 
+
+def edit_url(url, new_params):
+    url_parsed = url_parsers.urlparse(url)
+    params = url_parsers.parse_qs(url_parsed.query)
+    for k, v in new_params.items():
+        params[k] = [v]
+    return f"{url_parsed.scheme}://{url_parsed.netloc}{url_parsed.path}?{url_parsers.urlencode(params, doseq=True)}"
 
 class Video(Base):
     """
@@ -126,6 +134,7 @@ class Video(Base):
             if response.status >= 300:
                 raise exceptions.NotAvailableException("Content is not available")
         # TODO check with something else, sometimes no comments so this breaks
+        await asyncio.sleep(3)
         await self.check_for_unavailable_or_captcha('Video currently unavailable')
 
     def bytes(self, **kwargs) -> bytes:
@@ -141,7 +150,7 @@ class Video(Base):
             output.write(video_bytes)
         ```
         """
-        play_path = urlparse(self.as_dict['video']['playAddr']).path
+        play_path = url_parsers.urlparse(self.as_dict['video']['playAddr']).path
         reqs = self.get_requests(play_path)
         if len(reqs) == 0:
             # TODO load page and pull
@@ -162,7 +171,7 @@ class Video(Base):
             try:
                 res = await data_response.json()
 
-                valid_data_request = data_response.request
+                self.parent.request_cache['comments'] = data_response.request
 
                 processed_urls.append(data_response.url)
         
@@ -172,22 +181,22 @@ class Video(Base):
                 all_comments += comments
 
                 if amount_yielded > count:
-                    return all_comments, True
+                    return all_comments, processed_urls, True
 
                 has_more = res.get("has_more")
                 if has_more != 1:
                     self.parent.logger.info(
                         "TikTok isn't sending more TikToks beyond this point."
                     )
-                    return all_comments, True
+                    return all_comments, processed_urls, True
             except Exception:
                 pass
-
-        self.parent.request_cache['comments'] = valid_data_request
 
         return all_comments, processed_urls, False
 
     async def _get_comment_replies(self, comment, batch_size):
+        if 'comments' not in self.parent.request_cache:
+            return
         data_request = self.parent.request_cache['comments']
         num_already_fetched = len(comment.get('reply_comment', []) if comment.get('reply_comment', []) is not None else [])
         num_comments_to_fetch = comment['reply_comment_total'] - num_already_fetched
@@ -230,18 +239,17 @@ class Video(Base):
         # TODO allow multi layer comment fetch
 
         amount_yielded = 0
-        if 'comments' not in self.parent.request_cache:
-            all_comments, processed_urls, finished = await self._get_comments_and_req(count)
+        all_comments, processed_urls, finished = await self._get_comments_and_req(count)
 
-            for comment in all_comments:
-                await self._get_comment_replies(comment, batch_size)
+        for comment in all_comments:
+            await self._get_comment_replies(comment, batch_size)
 
-            amount_yielded += len(all_comments)
-            for comment in all_comments:
-                yield comment
+        amount_yielded += len(all_comments)
+        for comment in all_comments:
+            yield comment
 
-            if finished:
-                return
+        if finished:
+            return
             
         comment_ids = set(comment['cid'] for comment in all_comments)
         try:
@@ -304,7 +312,8 @@ class Video(Base):
         retries = 5
         for _ in range(retries):
             try:
-                next_url = add_if_not_replace(data_request.url, "count=([0-9]+)", f"count={count}", f"&count={count}")
+                ms_tokens = await self.parent.get_ms_tokens()
+                next_url = edit_url(data_request.url, {'count': count, 'cursor': '0', 'msToken': ms_tokens[-1]})
                 r = requests.get(next_url, headers=data_request.headers)
 
                 if r.status_code != 200:
@@ -334,11 +343,8 @@ class Video(Base):
         amount_yielded = len(comment_ids)
 
         while amount_yielded < count:
-            
-            next_url = add_if_not_replace(data_request.url, "cursor=([0-9]+)", f"cursor={amount_yielded}", f"&cursor={amount_yielded}")
-            next_url = add_if_not_replace(next_url, "aweme_id=([0-9]+)", f"aweme_id={self.id}", f"&aweme_id={self.id}")
-            next_url = add_if_not_replace(next_url, "count=([0-9]+)", f"count={batch_size}", f"&count={batch_size}")
-
+            ms_tokens = await self.parent.get_ms_tokens()
+            next_url = edit_url(data_request.url, {'count': count, 'cursor': '0', 'msToken': ms_tokens[-1]})
             r = requests.get(next_url, headers=data_request.headers)
 
             if r.status_code != 200:

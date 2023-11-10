@@ -8,6 +8,11 @@ from .. import exceptions, captcha_solver
 TOK_DELAY = 30
 CAPTCHA_DELAY = 999999
 
+def get_captcha_element(page):
+    return page.locator('Rotate the shapes') \
+        .or_(page.get_by_text('Verify to continue:', exact=True)) \
+        .or_(page.get_by_text('Click on the shapes with the same size', exact=True))
+
 class Base:
 
     async def check_initial_call(self, url):
@@ -21,7 +26,7 @@ class Base:
 
         content_element = page.locator(content_tag).first
         # content_element = page.get_by_text('Videos', exact=True)
-        captcha_element = page.get_by_text('Verify to continue:', exact=True)
+        captcha_element = get_captcha_element(page)
 
         try:
             await expect(content_element.or_(captcha_element)).to_be_visible(timeout=TOK_DELAY * 1000)
@@ -39,7 +44,7 @@ class Base:
     async def wait_for_content_or_unavailable_or_captcha(self, content_tag, unavailable_text):
         page = self.parent._page
         content_element = page.locator(content_tag).first
-        captcha_element = page.get_by_text('Verify to continue:', exact=True)
+        captcha_element = get_captcha_element(page)
         unavailable_element = page.get_by_text(unavailable_text, exact=True)
         try:
             await expect(content_element.or_(captcha_element).or_(unavailable_element)).to_be_visible(timeout=TOK_DELAY * 1000)
@@ -57,11 +62,17 @@ class Base:
 
     async def check_for_unavailable_or_captcha(self, unavailable_text):
         page = self.parent._page
-        captcha_element = page.get_by_text('Verify to continue:', exact=True)
+        captcha_element = get_captcha_element(page)
         unavailable_element = page.get_by_text(unavailable_text, exact=True)
 
-        if await captcha_element.is_visible():
+        captcha_visible = await captcha_element.is_visible()
+        if captcha_visible:
             await self.solve_captcha()
+
+        login_element = page.get_by_text('Log in to TikTok', exact=True)
+        login_visible = await login_element.is_visible()
+        if login_visible:
+            await page.click('text=Not now')
 
         if await unavailable_element.is_visible():
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
@@ -117,7 +128,7 @@ class Base:
         try:
             await expect(content).not_to_be_visible()
         except TimeoutError as e:
-            captcha_element = page.get_by_text('Verify to continue:', exact=True)
+            captcha_element = get_captcha_element(page)
             if await captcha_element.is_visible():
                 await self.solve_captcha()
             else:
@@ -125,7 +136,7 @@ class Base:
 
     async def check_and_wait_for_captcha(self):
         page = self.parent._page
-        captcha_element = page.get_by_text('Verify to continue:', exact=True)
+        captcha_element = get_captcha_element(page)
         captcha_visible = await captcha_element.is_visible()
         if captcha_visible:
             await self.solve_captcha()

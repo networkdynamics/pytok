@@ -13,7 +13,7 @@ videos = [
 ]
 
 async def main():
-    async with PyTok(headless=True) as api:
+    async with PyTok(headless=False) as api:
         for video in videos:
             comments = []
             async for comment in api.video(id=video['id'], username=video['author']['uniqueId']).comments(count=1000):

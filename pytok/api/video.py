@@ -201,20 +201,20 @@ class Video(Base):
         num_already_fetched = len(comment.get('reply_comment', []) if comment.get('reply_comment', []) is not None else [])
         num_comments_to_fetch = comment['reply_comment_total'] - num_already_fetched
         while num_comments_to_fetch > 0:
-            next_url = re.sub("cursor=([0-9]+)", f"cursor={num_already_fetched}", data_request.url)
-            next_url = re.sub("&aweme_id=([0-9]+)", '', next_url)
-            next_url = re.sub("count=([0-9]+)", f"count={min(num_comments_to_fetch, batch_size)}", next_url)
-            next_url = re.sub("api/comment/list/", "api/comment/list/reply/", next_url)
-            next_url = re.sub("focus_state=false", "focus_state=true", next_url)
-            next_url += f"&item_id={comment['aweme_id']}"
-            next_url += f"&comment_id={comment['cid']}"
+
+            url_parsed = url_parsers.urlparse(data_request.url)
+            params = url_parsers.parse_qs(url_parsed.query)
+            params['cursor'] = num_already_fetched
+            del params['aweme_id']
+            params['count'] = min(num_comments_to_fetch, batch_size)
+            params['item_id'] = comment['aweme_id']
+            params['comment_id'] = comment['cid']
+            params['focus_state'] = 'true'
+            url_path = url_parsed.path.replace("api/comment/list", "api/comment/list/reply")
+            next_url = f"{url_parsed.scheme}://{url_parsed.netloc}{url_path}?{url_parsers.urlencode(params, doseq=True)}"
 
             r = requests.get(next_url, headers=data_request.headers)
             res = r.json()
-
-            if res.get('type') == 'verify':
-                # force new request for cache
-                self._get_comments_and_req()
 
             reply_comments = res.get("comments", [])
 
@@ -287,6 +287,9 @@ class Video(Base):
                     processed_urls.append(data_response.url)
             
                     comments = res.get("comments", [])
+
+                    for comment in comments:
+                        await self._get_comment_replies(comment, 100)
 
                     amount_yielded += len(comments)
                     for comment in comments:

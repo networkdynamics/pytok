@@ -109,6 +109,7 @@ def try_load_comment_df_from_file(file_path, file_paths=[]):
         comment_df[['comment_id', 'author_name', 'author_id', 'text', 'video_id', 'comment_language', 'reply_comment_id']] = comment_df[['comment_id', 'author_name', 'author_id', 'text', 'video_id', 'comment_language', 'reply_comment_id']].astype(str)
         comment_df['mentions'] = comment_df['mentions'].apply(_str_to_list)
         comment_df['createtime'] = pd.to_datetime(comment_df['createtime'])
+        comment_df['createtime'] = comment_df['createtime'].astype('datetime64[ns]')
     else:
         if not file_paths:
             raise ValueError(f"Parquet file: {file_path} does not exist, and no file paths provided to generate dataframe")

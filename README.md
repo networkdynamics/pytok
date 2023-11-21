@@ -9,16 +9,25 @@ This is a Playwright based version of David Teacher's unofficial api wrapper for
 Here's a quick bit of code to get the videos from a particular hashtag on TikTok. There's more examples in the [examples](https://github.com/networkdynamics/pytok/tree/master/examples) directory.
 
 ```py
+import asyncio
+
 from pytok.tiktok import PyTok
 
-with PyTok() as api:
-    for video in api.hashtag(name=hashtag).videos(count=100):
-        # print the info of the top 100 videos for this hashtag
-        print(video.info())
+async def main():
+    async with PyTok() as api:
+        user = api.user(username="therock")
+        user_data = await user.info()
+        print(user_data)
+
+        videos = []
+        async for video in user.videos():
+            video_data = video.info()
+            print(video_data)
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-
-If you get an error about the wrong chrome version, you can set the chrome version used like so: `PyTok(chrome_version=114)`.
 
 Please note pulling data from TikTok takes a while! We recommend leaving the scripts running on a server for a while for them to finish downloading everything. Feel free to play around with the delay constants to either speed up the process or avoid TikTok rate limiting, like so: `PyTok(request_delay=10)`
 

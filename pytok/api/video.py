@@ -77,32 +77,23 @@ class Video(Base):
         if self.id is None or self.username is None:
             raise TypeError("You must provide id and username or url parameter.")
 
-    def info(self, **kwargs) -> dict:
+
+    async def info(self, **kwargs) -> dict:
         """
-        Returns a dictionary of TikTok's Video object.
+        Returns a dictionary of all data associated with a TikTok Video.
 
         Example Usage
         ```py
         video_data = api.video(id='7041997751718137094').info()
         ```
         """
-        return self.as_dict
-
-    def info_full(self, **kwargs) -> dict:
-        """
-        Returns a dictionary of all data associated with a TikTok Video.
-
-        Example Usage
-        ```py
-        video_data = api.video(id='7041997751718137094').info_full()
-        ```
-        """
-        self.view()
+        await self.view()
         url = self._get_url()
 
         # get initial html data
         initial_html_request = self.get_requests(url)[0]
-        html_body = self.get_response_body(initial_html_request)
+        initial_html_response = await initial_html_request.response()
+        html_body = await self.get_response_body(initial_html_response)
         contents = extract_tag_contents(html_body)
         res = json.loads(contents)
 

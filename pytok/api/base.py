@@ -92,7 +92,7 @@ class Base:
         return [response for response in self.parent._responses if api_path in response.url]
 
     async def get_response_body(self, response):
-        return await response.text()
+        return await response.body()
 
     async def scroll_to_bottom(self, speed=4):
         page = self.parent._page

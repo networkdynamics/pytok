@@ -371,7 +371,7 @@ class Video(Base):
                 )
                 return
 
-            self.parent.request_delay()
+            await self.parent.request_delay()
 
     def __extract_from_data(self) -> None:
         data = self.as_dict

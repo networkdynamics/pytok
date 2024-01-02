@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import json
-import re
-import time
+import asyncio
 from urllib.parse import urlparse, urlencode
 from attr import has
 
@@ -101,13 +100,14 @@ class User(Base):
                 if response.status >= 300:
                     raise NotAvailableException("Content is not available")
 
-        await self.wait_for_content_or_captcha('css=[data-e2e=user-post-item]')
+        await asyncio.sleep(3)
+        await self.check_for_unavailable_or_captcha('User has no content')
 
         data_responses = self.get_responses('api/user/detail')
         
         if len(data_responses) > 0:
             data_response = data_responses[-1]
-            data = await data_response.json()
+            data = json.loads(data_response._body)
             user = data["userInfo"]
         else:
             # get initial html data
@@ -182,7 +182,7 @@ class User(Base):
             print("Failed to get videos all at once, trying in batches...")
             pass
 
-        while amount_yielded < count and cursor < final_cursor:
+        while (count is None or amount_yielded < count) and cursor < final_cursor:
             
             next_url = add_if_not_replace(data_request.url, "id=([0-9]+)", f"id={self.user_id}", f"&id={self.user_id}")
             next_url = add_if_not_replace(next_url, "secUid=([0-9]+)", f"secUid={self.sec_uid}", f"&secUid={self.sec_uid}")
@@ -214,6 +214,8 @@ class User(Base):
 
     async def _get_api_videos_and_req(self, count):
         all_videos = []
+        finished = False
+        final_cursor = 0
 
         video_responses = self.get_responses('api/post/item_list')
         for video_response in video_responses:

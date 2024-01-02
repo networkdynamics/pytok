@@ -128,7 +128,7 @@ class Video(Base):
         await asyncio.sleep(3)
         await self.check_for_unavailable_or_captcha('Video currently unavailable')
 
-    def bytes(self, **kwargs) -> bytes:
+    async def bytes(self, **kwargs) -> bytes:
         """
         Returns the bytes of a TikTok Video.
 
@@ -146,7 +146,9 @@ class Video(Base):
         if len(reqs) == 0:
             # TODO load page and pull
             raise Exception("No requests found for video")
-        return self.get_response_body(reqs[0], decode=False)
+        res = await reqs[0].response()
+        body = res._body
+        return body
 
     async def _get_comments_and_req(self, count):
         # get request

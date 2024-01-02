@@ -4,7 +4,7 @@ import re
 import time
 from typing import Optional
 
-import pyvirtualdisplay
+import playwright
 from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
 
@@ -95,7 +95,14 @@ class PyTok:
         self._responses = []
 
         self._page.on("request", lambda request: self._requests.append(request))
-        self._page.on("response", lambda response: self._responses.append(response))
+
+        async def save_responses_and_body(response):
+            self._responses.append(response)
+            try:
+                response._body = await response.body()
+            except Exception:
+                pass
+        self._page.on("response", save_responses_and_body)
 
         self._user_agent = await self._page.evaluate("() => navigator.userAgent")
         self._is_context_manager = True

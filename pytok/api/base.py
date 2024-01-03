@@ -9,8 +9,7 @@ TOK_DELAY = 30
 CAPTCHA_DELAY = 999999
 
 def get_login_close_element(page):
-    return page.locator("css=[data-e2e=modal-close-inner-button]") \
-        .or_(page.get_by_text("Continue as guest", exact=True)) \
+    return page.get_by_text("Continue as guest", exact=True) \
         .or_(page.get_by_text("Continue without login", exact=True))
 
 def get_captcha_element(page):

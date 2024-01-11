@@ -4,6 +4,8 @@ import re
 
 
 def extract_tag_contents(html):
+    if isinstance(html, bytes):
+        html = html.decode("utf-8")
     next_json = re.search(
         r"id=\"__NEXT_DATA__\"\s+type=\"application\/json\"\s*[^>]+>\s*(?P<next_data>[^<]+)",
         html,

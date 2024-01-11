@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import asyncio
+import re
 from urllib.parse import urlparse, urlencode
-from attr import has
+from urllib import parse as url_parsers
 
 import requests
 
 from ..exceptions import *
-from ..helpers import extract_tag_contents, add_if_not_replace
+from ..helpers import extract_tag_contents
 
 from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
 
@@ -107,7 +108,7 @@ class User(Base):
         
         if len(data_responses) > 0:
             data_response = data_responses[-1]
-            data = json.loads(data_response._body)
+            data = await data_response.json()
             user = data["userInfo"]
         else:
             # get initial html data
@@ -141,6 +142,8 @@ class User(Base):
         except ApiFailedException:
             async for video in self._get_videos_scraping(count):
                 yield video
+        except Exception as ex:
+            raise
 
 
     async def _get_videos_api(self, count, batch_size, **kwargs) -> Iterator[Video]:
@@ -164,12 +167,21 @@ class User(Base):
         video_ids = set(v['id'] for v in all_videos)
 
         try:
-            count = min(count, self.as_dict['stats']['videoCount'])
-            next_url = add_if_not_replace(data_request.url, "count=([0-9]+)", f"count={count}", f"&count={count}")
+            if count:
+                count = min(count, self.as_dict['stats']['videoCount'])
+            else:
+                count = self.as_dict['stats']['videoCount']
+            url_parsed = url_parsers.urlparse(data_request.url)
+            params = url_parsers.parse_qs(url_parsed.query)
+            params['count'] = count
+            next_url = f"{url_parsed.scheme}://{url_parsed.netloc}{url_parsed.path}?{url_parsers.urlencode(params, doseq=True)}"
             r = requests.get(next_url, headers=data_request.headers)
 
             if r.status_code != 200:
-                raise ApiFailingException(f"Failed to get videos from API with status code {r.status_code}")
+                raise ApiFailedException(f"Failed to get videos from API with status code {r.status_code}")
+
+            if not r.content:
+                raise ApiFailedException(f"Failed to get videos from API with empty response")
 
             res = r.json()
             videos = res.get('itemList', [])
@@ -178,17 +190,25 @@ class User(Base):
                     yield self.parent.video(data=video)
 
             return
-        except Exception:
+        except Exception as ex:
             print("Failed to get videos all at once, trying in batches...")
             pass
 
         while (count is None or amount_yielded < count) and cursor < final_cursor:
-            
-            next_url = add_if_not_replace(data_request.url, "id=([0-9]+)", f"id={self.user_id}", f"&id={self.user_id}")
-            next_url = add_if_not_replace(next_url, "secUid=([0-9]+)", f"secUid={self.sec_uid}", f"&secUid={self.sec_uid}")
-            next_url = add_if_not_replace(next_url, "cursor=([0-9]+)", f"cursor={cursor}", f"&cursor={cursor}")
 
+            url_parsed = url_parsers.urlparse(data_request.url)
+            params = url_parsers.parse_qs(url_parsed.query)
+            params['id'] = self.user_id
+            params['secUid'] = self.sec_uid
+            params['cursor'] = cursor
+            next_url = f"{url_parsed.scheme}://{url_parsed.netloc}{url_parsed.path}?{url_parsers.urlencode(params, doseq=True)}"
             r = requests.get(next_url, headers=data_request.headers)
+
+            if r.status_code != 200:
+                raise ApiFailedException(f"Failed to get videos from API with status code {r.status_code}")
+            if not r.content:
+                raise ApiFailedException(f"Failed to get videos from API with empty response")
+
             res = r.json()
 
             if res.get('type') == 'verify':
@@ -215,7 +235,7 @@ class User(Base):
     async def _get_api_videos_and_req(self, count):
         all_videos = []
         finished = False
-        final_cursor = 0
+        final_cursor = 9999999999999999999999999999999
 
         video_responses = self.get_responses('api/post/item_list')
         for video_response in video_responses:
@@ -227,7 +247,7 @@ class User(Base):
                     finished = video_data.get('hasMore') is False
                     final_cursor = int(video_data['cursor'])
                     break
-            except Exception:
+            except Exception as ex:
                 pass
 
         self.parent.request_cache['videos'] = video_responses[-1]
@@ -241,14 +261,14 @@ class User(Base):
         if page.url != url:
             await page.goto(url)
             self.check_initial_call(url)
-        await self.wait_for_content_or_captcha('user-post-item')
+        await self.wait_for_content_or_captcha('[data-e2e=user-post-item]')
 
         video_pull_method = 'scroll'
         if video_pull_method == 'scroll':
-            for video in self._get_videos_scroll(count):
+            async for video in self._get_videos_scroll(count):
                 yield video
         elif video_pull_method == 'individual':
-            for video in self._get_videos_individual(count):
+            async for video in self._get_videos_individual(count):
                 yield video
 
     async def _get_videos_individual(self, count):
@@ -273,28 +293,38 @@ class User(Base):
             if still_more:
                 await page.locator("[data-e2e=browse-video]").press('ArrowDown')
 
-    def _load_each_video(self, videos):
+    async def _load_each_video(self, videos):
         page = self.parent._page
 
         # get description elements with identifiable links
-        all_desc_elements = page.locator("[data-e2e=user-post-item-desc]").elements
+        desc_elements_locator = page.locator("[data-e2e=user-post-item-desc]")
+        desc_elements_count = await desc_elements_locator.count()
 
         video_elements = []
         for video in videos:
-            for desc_element in all_desc_elements:
-                if video['id'] in desc_element.children()[0].get_attribute('href'):
+            found = False
+            for i in range(desc_elements_count):
+                desc_element = desc_elements_locator.nth(i)
+                inner_html = await desc_element.inner_html()
+                match = re.search(r'href="https:\/\/www\.tiktok\.com\/@[^\/]+\/video\/([0-9]+)"', inner_html)
+                if not match:
+                    continue
+                video_id = match.group(1)
+                if video['id'] == video_id:
                     # get sibling element of video element
-                    video_element = desc_element.locator('//..').children()[0]
+                    video_element = page.locator(f"xpath=//a[contains(@href, '{video['id']}')]/../..").first
                     video_elements.append((video, video_element))
+                    found = True
                     break
-            else:
+
+            if not found:
                 pass
-                # TODO log this
+                # TODO: log this
                 # raise Exception(f"Could not find video element for video {video['id']}")
 
-        for i, (video, element) in enumerate(video_elements):
-            self.scroll_to(element.location['y'])
-            element.hover()
+        for video, element in video_elements:
+            await element.scroll_into_view_if_needed()
+            await element.hover()
             try:
                 play_path = urlparse(video['video']['playAddr']).path
             except KeyError:
@@ -302,48 +332,55 @@ class User(Base):
                 continue
 
             try:
-                self.wait_for_requests(play_path)
-            except Exception:
+                requests = self.get_requests(play_path)
+                resp = await requests[0].response()
+            except Exception as ex:
                 print(f"Failed to load video file for video: {video['id']}")
-            self.parent.request_delay()
 
-    def _get_videos_scroll(self, count):
+            await self.parent.request_delay()
+
+
+    async def _get_videos_scroll(self, count):
 
         # get initial html data
         html_req_path = f"@{self.username}"
         initial_html_request = self.get_requests(html_req_path)[0]
-        html_body = self.get_response_body(initial_html_request)
-        tag_contents = extract_tag_contents(html_body)
-        res = json.loads(tag_contents)
+        initial_html_response = await initial_html_request.response()
+        html_body = await self.get_response_body(initial_html_response)
 
         amount_yielded = 0
-        all_videos = []
 
-        if 'ItemModule' in res:
-            videos = list(res['ItemModule'].values())
+        try:
+            tag_contents = extract_tag_contents(html_body)
+            res = json.loads(tag_contents)
 
-            video_users = res["UserModule"]["users"]
+            if 'ItemModule' in res:
+                videos = list(res['ItemModule'].values())
 
-            for video in videos:
-                video['author'] = video_users[video['author']]
+                video_users = res["UserModule"]["users"]
 
-            self._load_each_video(videos)
+                for video in videos:
+                    video['author'] = video_users[video['author']]
 
-            amount_yielded += len(videos)
-            video_objs = [self.parent.video(data=video) for video in videos]
+                self._load_each_video(videos)
 
-            for video in video_objs:
-                yield video
+                amount_yielded += len(videos)
+                video_objs = [self.parent.video(data=video) for video in videos]
 
-            has_more = res['ItemList']['user-post']['hasMore']
-            if not has_more:
-                User.parent.logger.info(
-                    "TikTok isn't sending more TikToks beyond this point."
-                )
-                return
-            
-            if count and amount_yielded >= count:
-                return
+                for video in video_objs:
+                    yield video
+
+                has_more = res['ItemList']['user-post']['hasMore']
+                if not has_more:
+                    User.parent.logger.info(
+                        "TikTok isn't sending more TikToks beyond this point."
+                    )
+                    return
+                
+                if count and amount_yielded >= count:
+                    return
+        except Exception as ex:
+            pass
 
         data_request_path = "api/post/item_list"
         data_urls = []
@@ -354,12 +391,12 @@ class User(Base):
         cursors = []
         while not valid_data_request:
             for _ in range(tries):
-                self.parent.request_delay()
-                self.slight_scroll_up()
-                self.parent.request_delay()
-                self.scroll_to_bottom()
+                await self.parent.request_delay()
+                await self.slight_scroll_up()
+                await self.parent.request_delay()
+                await self.scroll_to_bottom()
             try:
-                self.wait_for_requests(data_request_path, timeout=tries*4)
+                await self.wait_for_requests(data_request_path, timeout=tries*4)
             except TimeoutException:
                 tries += 1
                 if tries > MAX_TRIES:
@@ -376,7 +413,11 @@ class User(Base):
 
             for data_request in data_requests:
                 data_urls.append(data_request.url)
-                res_body = self.get_response_body(data_request)
+                data_response = await data_request.response()
+                try:
+                    res_body = await self.get_response_body(data_response)
+                except Exception as ex:
+                    continue
 
                 if not res_body:
                     tries += 1
@@ -391,7 +432,7 @@ class User(Base):
                 videos = res.get("itemList", [])
                 cursors.append(int(res['cursor']))
 
-                self._load_each_video(videos)
+                await self._load_each_video(videos)
 
                 amount_yielded += len(videos)
                 video_objs = [self.parent.video(data=video) for video in videos]

@@ -91,7 +91,7 @@ class Video(Base):
         url = self._get_url()
 
         # get initial html data
-        initial_html_request = self.get_requests(url)[0]
+        initial_html_request = self.get_requests(url)[-1]
         initial_html_response = await initial_html_request.response()
         html_body = await self.get_response_body(initial_html_response)
         contents = extract_tag_contents(html_body)
@@ -147,7 +147,10 @@ class Video(Base):
             # TODO load page and pull
             raise Exception("No requests found for video")
         res = await reqs[0].response()
-        body = res._body
+        try:
+            body = await res.body()
+        except Exception as ex:
+            raise Exception(ex, "Failed to get video bytes")
         return body
 
     async def _get_comments_and_req(self, count):

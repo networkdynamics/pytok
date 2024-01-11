@@ -82,11 +82,12 @@ class Base:
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
 
 
-    def wait_for_requests(self, api_path, timeout=TOK_DELAY):
+    async def wait_for_requests(self, api_path, timeout=TOK_DELAY):
         page = self.parent._page
         try:
-            return page.expect_request(api_path, timeout=timeout * 1000)
-        except TimeoutError as e:
+            async with page.expect_request(api_path, timeout=timeout * 1000) as first:
+                return await first.value
+        except Exception as e:
             raise exceptions.TimeoutException(str(e))
 
     def get_requests(self, api_path):

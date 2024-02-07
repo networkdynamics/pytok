@@ -17,7 +17,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     keywords=["tiktok", "python3", "api", "unofficial", "tiktok-api", "tiktok api"],
-    install_requires=["requests", "playwright", "undetected-playwright", "pyvirtualdisplay", "tqdm"],
+    install_requires=["requests", "playwright", "playwright_stealth", "pyvirtualdisplay", "tqdm"],
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",

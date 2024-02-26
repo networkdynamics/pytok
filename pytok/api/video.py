@@ -87,20 +87,23 @@ class Video(Base):
         video_data = api.video(id='7041997751718137094').info()
         ```
         """
-        await self.view()
-        url = self._get_url()
+        if not hasattr(self, 'as_dict'):
+            await self.view()
+            url = self._get_url()
 
-        # get initial html data
-        initial_html_request = self.get_requests(url)[-1]
-        initial_html_response = await initial_html_request.response()
-        html_body = await self.get_response_body(initial_html_response)
-        contents = extract_tag_contents(html_body)
-        res = json.loads(contents)
+            # get initial html data
+            initial_html_request = self.get_requests(url)[-1]
+            initial_html_response = await initial_html_request.response()
+            html_body = await self.get_response_body(initial_html_response)
+            contents = extract_tag_contents(html_body)
+            res = json.loads(contents)
 
-        video = list(res['ItemModule'].values())[0]
+            video = list(res['ItemModule'].values())[0]
 
-        video_users = res['UserModule']['users']
-        video['author'] = video_users[video['author']]
+            video_users = res['UserModule']['users']
+            video['author'] = video_users[video['author']]
+        else:
+            video = self.as_dict
 
         return video
 

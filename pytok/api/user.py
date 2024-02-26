@@ -103,6 +103,7 @@ class User(Base):
 
         await asyncio.sleep(3)
         await self.check_for_unavailable_or_captcha('User has no content')
+        await self.check_for_unavailable("Couldn't find this account")
 
         data_responses = self.get_responses('api/user/detail')
         

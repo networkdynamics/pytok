@@ -15,7 +15,8 @@ def get_login_close_element(page):
 def get_captcha_element(page):
     return page.locator('Rotate the shapes') \
         .or_(page.get_by_text('Verify to continue:', exact=True)) \
-        .or_(page.get_by_text('Click on the shapes with the same size', exact=True))
+        .or_(page.get_by_text('Click on the shapes with the same size', exact=True)) \
+        .or_(page.get_by_text('Drag the slider to fit the puzzle', exact=True))
 
 class Base:
 
@@ -78,6 +79,12 @@ class Base:
         if login_visible:
             await get_login_close_element(page).click()
 
+        if await unavailable_element.is_visible():
+            raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
+        
+    async def check_for_unavailable(self, unavailable_text):
+        page = self.parent._page
+        unavailable_element = page.get_by_text(unavailable_text, exact=True)
         if await unavailable_element.is_visible():
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
 

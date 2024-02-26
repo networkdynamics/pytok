@@ -250,6 +250,7 @@ class Video(Base):
         if finished:
             return
             
+        # so that we don't re-yield any comments previously yielded
         comment_ids = set(comment['cid'] for comment in all_comments)
         try:
             async for comment in self._get_api_comments(count, batch_size, comment_ids):

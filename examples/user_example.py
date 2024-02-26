@@ -11,7 +11,7 @@ async def main():
         videos = []
         videos_bytes = []
         async for video in user.videos():
-            video_data = video.info()
+            video_data = await video.info()
             videos.append(video_data)
             try:
                 video_bytes = await video.bytes()

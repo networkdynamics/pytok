@@ -391,17 +391,11 @@ class User(Base):
         cursors = []
         while not valid_data_request:
             for _ in range(tries):
+                await self.check_and_wait_for_captcha()
                 await self.parent.request_delay()
                 await self.slight_scroll_up()
                 await self.parent.request_delay()
                 await self.scroll_to_bottom()
-            try:
-                await self.wait_for_requests(data_request_path, timeout=tries*4)
-            except TimeoutException:
-                tries += 1
-                if tries > MAX_TRIES:
-                    raise
-                continue
 
             data_requests = [req for req in self.get_requests(data_request_path) if req.url not in data_urls]
 

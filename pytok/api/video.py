@@ -122,6 +122,29 @@ class Video(Base):
         initial_html_response = self.get_responses(url)[-1]
         server_addr = await initial_html_response.server_addr()
         return server_addr
+    
+    async def bytes_network_info(self, **kwargs) -> dict:
+        """
+        Returns a dictionary of all network data associated with a TikTok Video.
+
+        Example Usage
+        ```py
+        video_data = api.video(id='7041997751718137094').bytes_network_data()
+        ```
+        """
+        play_path = url_parsers.urlparse(self.as_dict['video']['playAddr']).path
+        resps = self.get_responses(play_path)
+        if len(resps) == 0:
+            # TODO load page and pull
+            raise Exception("No requests found for video")
+        for res in resps:
+            try:
+                server_addr = await res.server_addr()
+            except Exception as ex:
+                raise Exception(ex, "Failed to get video bytes")
+            return server_addr
+
+        return server_addr
 
     def _get_url(self) -> str:
         return f"https://www.tiktok.com/@{self.username}/video/{self.id}"

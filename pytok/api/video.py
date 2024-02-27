@@ -141,8 +141,10 @@ class Video(Base):
             try:
                 server_addr = await res.server_addr()
             except Exception as ex:
-                raise Exception(ex, "Failed to get video bytes")
+                continue
             return server_addr
+        else:
+            raise Exception("Failed to get video bytes")
 
         return server_addr
 
@@ -195,8 +197,10 @@ class Video(Base):
                 try:
                     body = await res.body()
                 except Exception as ex:
-                    raise Exception(ex, "Failed to get video bytes")
+                    continue
             return body
+        else:
+            raise Exception(ex, "Failed to get video bytes")    
 
     async def _get_comments_and_req(self, count):
         # get request

@@ -88,24 +88,40 @@ class Video(Base):
         ```
         """
         if not hasattr(self, 'as_dict'):
-            await self.view()
             url = self._get_url()
+            page = self.parent._page
+            if page.url != url:
+                await self.view()
 
             # get initial html data
-            initial_html_request = self.get_requests(url)[-1]
-            initial_html_response = await initial_html_request.response()
+            initial_html_response = self.get_responses(url)[-1]
             html_body = await self.get_response_body(initial_html_response)
             contents = extract_tag_contents(html_body)
             res = json.loads(contents)
 
-            video = list(res['ItemModule'].values())[0]
-
-            video_users = res['UserModule']['users']
-            video['author'] = video_users[video['author']]
+            video = res['__DEFAULT_SCOPE__']['webapp.video-detail']['itemInfo']['itemStruct']
+            self.as_dict = video
         else:
             video = self.as_dict
 
         return video
+    
+    async def network_info(self, **kwargs) -> dict:
+        """
+        Returns a dictionary of all network data associated with a TikTok Video.
+
+        Example Usage
+        ```py
+        video_data = api.video(id='7041997751718137094').network_data()
+        ```
+        """
+        url = self._get_url()
+        page = self.parent._page
+        if page.url != url:
+            await self.view()
+        initial_html_response = self.get_responses(url)[-1]
+        server_addr = await initial_html_response.server_addr()
+        return server_addr
 
     def _get_url(self) -> str:
         return f"https://www.tiktok.com/@{self.username}/video/{self.id}"

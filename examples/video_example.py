@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 from pytok.tiktok import PyTok
 
@@ -11,10 +12,18 @@ async def main():
 
         # Bytes of the TikTok video
         video_data = await video.info()
+        network_data = await video.network_info()
         video_bytes = await video.bytes()
 
+        all_data = {
+            "video_data": video_data,
+            "network_data": network_data,
+            "video_bytes": video_bytes
+        }
+
         with open("out.json", "w") as out_file:
-            out_file.write(video_data)
+            json.dump(all_data, out_file)
 
 if __name__ == "__main__":
     asyncio.run(main())
+

@@ -133,12 +133,13 @@ class Video(Base):
         ```
         """
         play_path = url_parsers.urlparse(self.as_dict['video']['playAddr']).path
-        resps = self.get_responses(play_path)
-        if len(resps) == 0:
+        reqs = self.get_requests(play_path)
+        if len(reqs) == 0:
             # TODO load page and pull
             raise Exception("No requests found for video")
-        for res in resps:
+        for req in reqs:
             try:
+                res = await req.response()
                 server_addr = await res.server_addr()
             except Exception as ex:
                 continue
@@ -186,18 +187,16 @@ class Video(Base):
         ```
         """
         play_path = url_parsers.urlparse(self.as_dict['video']['playAddr']).path
-        resps = self.get_responses(play_path)
-        if len(resps) == 0:
+        reqs = self.get_requests(play_path)
+        if len(reqs) == 0:
             # TODO load page and pull
             raise Exception("No requests found for video")
-        for res in resps:
+        for req in reqs:
             try:
-                body = await res._body
+                res = await req.response()
+                body = await res.body()
             except Exception as ex:
-                try:
-                    body = await res.body()
-                except Exception as ex:
-                    continue
+                continue
             return body
         else:
             raise Exception(ex, "Failed to get video bytes")    

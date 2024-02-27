@@ -141,13 +141,11 @@ class Video(Base):
             try:
                 res = await req.response()
                 server_addr = await res.server_addr()
-            except Exception as ex:
+            except Exception:
                 continue
             return server_addr
         else:
             raise Exception("Failed to get video bytes")
-
-        return server_addr
 
     def _get_url(self) -> str:
         return f"https://www.tiktok.com/@{self.username}/video/{self.id}"
@@ -195,11 +193,11 @@ class Video(Base):
             try:
                 res = await req.response()
                 body = await res.body()
-            except Exception as ex:
+            except Exception:
                 continue
             return body
         else:
-            raise Exception(ex, "Failed to get video bytes")    
+            raise Exception("Failed to get video bytes")    
 
     async def _get_comments_and_req(self, count):
         # get request

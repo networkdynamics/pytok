@@ -29,7 +29,7 @@ def _get_comment_features(comment):
     else:
         raise ValueError()
 
-    mentioned_users = [info['user_id'] for info in comment['text_extra'] if info['user_id'] != '']
+    mentioned_users = [info['user_id'] for info in comment['text_extra'] if 'user_id' in info and info['user_id'] != '']
 
     return author_id, author_name, mentioned_users
 
@@ -302,11 +302,16 @@ def get_user_df(entities):
     for entity in entities:
         if 'user' in entity:
             user_info = entity['user']
+            if 'stats' in entity:
+                user_info.update(entity['stats'])
             if isinstance(user_info, dict):
-                if 'unique_id' not in user_info:
+                if 'unique_id' in user_info:
+                    user_id = user_info['unique_id']
+                elif 'uniqueId' in user_info:
+                    user_id = user_info['uniqueId']
+                else:
                     continue
 
-                user_id = user_info['unique_id']
                 if user_id in users:
                     users[user_id] = update_if_not_none(users[user_id], user_info)
                 else:
@@ -345,7 +350,8 @@ def get_user_df(entities):
         else:
             raise ValueError("Unknown entity type")
 
-    assert len(users) > 0, "No users found in entities"
+    if len(users) == 0:
+        raise ValueError("No users found in entities")
 
     user_df = pd.DataFrame(list(users.values()))
 

@@ -197,6 +197,12 @@ class Video(Base):
                 continue
             return body
         else:
+            # send the request ourselves
+            cookies = await self.parent._context.cookies()
+            cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+            r = requests.get(req.url, headers=req.headers, cookies=cookies)
+            if r.content is not None or len(r.content) > 0:
+                return r.content
             raise Exception("Failed to get video bytes")    
 
     async def _get_comments_and_req(self, count):

@@ -13,14 +13,8 @@ async def main():
         async for video in user.videos():
             video_data = await video.info()
             videos.append(video_data)
-            try:
-                video_bytes = await video.bytes()
-                videos_bytes.append(video_bytes)
-            except:
-                continue
 
         assert len(videos) > 0, "No videos found"
-        assert len(videos_bytes) > 0
         with open("out.json", "w") as f:
             json.dump(videos, f)
 

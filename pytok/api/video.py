@@ -99,12 +99,12 @@ class Video(Base):
             contents = extract_tag_contents(html_body)
             res = json.loads(contents)
 
-            video = res['__DEFAULT_SCOPE__']['webapp.video-detail']['itemInfo']['itemStruct']
-            self.as_dict = video
+            video_data = res['__DEFAULT_SCOPE__']['webapp.video-detail']['itemInfo']['itemStruct']
+            self.as_dict = video_data
         else:
-            video = self.as_dict
+            video_data = self.as_dict
 
-        return video
+        return video_data
     
     async def network_info(self, **kwargs) -> dict:
         """
@@ -161,16 +161,19 @@ class Video(Base):
         ```
         """
         play_path = url_parsers.urlparse(self.as_dict['video']['playAddr']).path
-        reqs = self.get_requests(play_path)
-        if len(reqs) == 0:
+        resps = self.get_responses(play_path)
+        if len(resps) == 0:
             # TODO load page and pull
             raise Exception("No requests found for video")
-        res = await reqs[0].response()
-        try:
-            body = await res.body()
-        except Exception as ex:
-            raise Exception(ex, "Failed to get video bytes")
-        return body
+        for res in resps:
+            try:
+                body = await res._body
+            except Exception as ex:
+                try:
+                    body = await res.body()
+                except Exception as ex:
+                    raise Exception(ex, "Failed to get video bytes")
+            return body
 
     async def _get_comments_and_req(self, count):
         # get request
@@ -426,11 +429,11 @@ class Video(Base):
     def __str__(self):
         return f"PyTok.video(id='{self.id}')"
 
-    def __getattr__(self, name):
-        # Handle author, sound, hashtags, as_dict
-        if name in ["author", "sound", "hashtags", "stats", "create_time", "as_dict"]:
-            self.as_dict = self.info()
-            self.__extract_from_data()
-            return self.__getattribute__(name)
+    # def __getattr__(self, name):
+    #     # Handle author, sound, hashtags, as_dict
+    #     if name in ["author", "sound", "hashtags", "stats", "create_time", "as_dict"]:
+    #         self.as_dict = self.info()
+    #         self.__extract_from_data()
+    #         return self.__getattribute__(name)
 
-        raise AttributeError(f"{name} doesn't exist on PyTok.api.Video")
+    #     raise AttributeError(f"{name} doesn't exist on PyTok.api.Video")

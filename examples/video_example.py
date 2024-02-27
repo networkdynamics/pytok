@@ -18,11 +18,13 @@ async def main():
         all_data = {
             "video_data": video_data,
             "network_data": network_data,
-            "video_bytes": video_bytes
         }
 
         with open("out.json", "w") as out_file:
             json.dump(all_data, out_file)
+
+        with open("out.mp4", "wb") as out_file:
+            out_file.write(video_bytes)
 
 if __name__ == "__main__":
     asyncio.run(main())

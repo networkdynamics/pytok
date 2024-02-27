@@ -122,7 +122,7 @@ class User(Base):
         self.as_dict = user
         return user
 
-    async def videos(self, count=None, batch_size=100, **kwargs) -> Iterator[Video]:
+    async def videos(self, get_bytes=False, count=None, batch_size=100, **kwargs) -> Iterator[Video]:
         """
         Returns an iterator yielding Video objects.
 
@@ -138,16 +138,16 @@ class User(Base):
         ```
         """
         try:
-            async for video in self._get_videos_api(count, batch_size, **kwargs):
+            async for video in self._get_videos_api(count, get_bytes, **kwargs):
                 yield video
         except ApiFailedException:
-            async for video in self._get_videos_scraping(count):
+            async for video in self._get_videos_scraping(count, get_bytes):
                 yield video
         except Exception as ex:
             raise
 
 
-    async def _get_videos_api(self, count, batch_size, **kwargs) -> Iterator[Video]:
+    async def _get_videos_api(self, count, get_bytes, **kwargs) -> Iterator[Video]:
         amount_yielded = 0
         cursor = 0
         final_cursor = 9999999999999999999999999999999
@@ -255,7 +255,7 @@ class User(Base):
 
         return all_videos, finished, final_cursor
 
-    async def _get_videos_scraping(self, count):
+    async def _get_videos_scraping(self, count, get_bytes):
         page = self.parent._page
 
         url = f"https://www.tiktok.com/@{self.username}"
@@ -266,13 +266,13 @@ class User(Base):
 
         video_pull_method = 'scroll'
         if video_pull_method == 'scroll':
-            async for video in self._get_videos_scroll(count):
+            async for video in self._get_videos_scroll(count, get_bytes):
                 yield video
         elif video_pull_method == 'individual':
-            async for video in self._get_videos_individual(count):
+            async for video in self._get_videos_individual(count, get_bytes):
                 yield video
 
-    async def _get_videos_individual(self, count):
+    async def _get_videos_individual(self, count, get_bytes):
         page = self.parent._page
 
         await page.locator("[data-e2e=user-post-item]").click()
@@ -341,7 +341,7 @@ class User(Base):
             await self.parent.request_delay()
 
 
-    async def _get_videos_scroll(self, count):
+    async def _get_videos_scroll(self, count, get_bytes):
 
         # get initial html data
         html_req_path = f"@{self.username}"
@@ -363,7 +363,8 @@ class User(Base):
                 for video in videos:
                     video['author'] = video_users[video['author']]
 
-                self._load_each_video(videos)
+                if get_bytes:
+                    await self._load_each_video(videos)
 
                 amount_yielded += len(videos)
                 video_objs = [self.parent.video(data=video) for video in videos]
@@ -427,7 +428,8 @@ class User(Base):
                 videos = res.get("itemList", [])
                 cursors.append(int(res['cursor']))
 
-                await self._load_each_video(videos)
+                if get_bytes:
+                    await self._load_each_video(videos)
 
                 amount_yielded += len(videos)
                 video_objs = [self.parent.video(data=video) for video in videos]

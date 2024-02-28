@@ -86,8 +86,12 @@ class CaptchaSolver:
     async def solve_captcha(self):
         captcha_challenge = await self._get_challenge()
 
-        captcha_id = captcha_challenge["data"]["id"]
-        tip_y = captcha_challenge["data"]["question"]["tip_y"]
+        if 'mode' in captcha_challenge["data"]:
+            captcha_challenge = captcha_challenge["data"]
+        elif 'challenges' in captcha_challenge["data"]:
+            captcha_challenge = captcha_challenge["data"]["challenges"][0]
+        captcha_id = captcha_challenge["id"]
+        tip_y = captcha_challenge["question"]["tip_y"]
 
         solve = await self._solve_captcha()
         

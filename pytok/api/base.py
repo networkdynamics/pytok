@@ -163,18 +163,22 @@ class Base:
         request = self.get_requests('/captcha/get')[0]
         captcha_response = await request.response()
         captcha_json = await captcha_response.json()
-        captcha_type = captcha_json['data']['mode']
+        if 'mode' in captcha_json['data']:
+            captcha_data = captcha_json['data']
+        elif 'challenges' in captcha_json['data']:
+            captcha_data = captcha_json['data']['challenges'][0]
+        captcha_type = captcha_data['mode']
         if captcha_type != 'slide':
             raise exceptions.CaptchaException(f"Unsupported captcha type: {captcha_type}")
         
-        puzzle_req = self.get_requests(captcha_json['data']['question']['url1'])[0]
+        puzzle_req = self.get_requests(captcha_data['question']['url1'])[0]
         puzzle_response = await puzzle_req.response()
         puzzle = await puzzle_response.body()
 
         if not puzzle:
             raise exceptions.CaptchaException("Puzzle was not found in response")
 
-        piece_req = self.get_requests(captcha_json['data']['question']['url2'])[0]
+        piece_req = self.get_requests(captcha_data['question']['url2'])[0]
         piece_response = await piece_req.response()
         piece = await piece_response.body()
 

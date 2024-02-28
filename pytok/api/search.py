@@ -142,8 +142,9 @@ class Search(Base):
             elif pull_method == 'requests':
                 cursor = res["cursor"]
                 next_url = re.sub("offset=([0-9]+)", f"offset={cursor}", request.url)
-
-                r = requests.get(next_url, headers=request.headers)
+                cookies = self.parent._context.cookies()
+                cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+                r = requests.get(next_url, headers=request.headers, cookies=cookies)
                 res = r.json()
 
                 if res.get('type') == 'verify':

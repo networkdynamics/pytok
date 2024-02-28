@@ -260,8 +260,9 @@ class Video(Base):
             params['focus_state'] = 'true'
             url_path = url_parsed.path.replace("api/comment/list", "api/comment/list/reply")
             next_url = f"{url_parsed.scheme}://{url_parsed.netloc}{url_path}?{url_parsers.urlencode(params, doseq=True)}"
-
-            r = requests.get(next_url, headers=data_request.headers)
+            cookies = await self.parent._context.cookies()
+            cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+            r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
             res = r.json()
 
             reply_comments = res.get("comments", [])
@@ -366,7 +367,9 @@ class Video(Base):
             try:
                 ms_tokens = await self.parent.get_ms_tokens()
                 next_url = edit_url(data_request.url, {'count': count, 'cursor': '0', 'msToken': ms_tokens[-1]})
-                r = requests.get(next_url, headers=data_request.headers)
+                cookies = await self.parent._context.cookies()
+                cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+                r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
 
                 if r.status_code != 200:
                     raise Exception(f"Failed to get comments with status code {r.status_code}")
@@ -397,7 +400,9 @@ class Video(Base):
         while amount_yielded < count:
             ms_tokens = await self.parent.get_ms_tokens()
             next_url = edit_url(data_request.url, {'count': count, 'cursor': '0', 'msToken': ms_tokens[-1]})
-            r = requests.get(next_url, headers=data_request.headers)
+            cookies = await self.parent._context.cookies()
+            cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+            r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
 
             if r.status_code != 200:
                 raise Exception(f"Failed to get comments with status code {r.status_code}")

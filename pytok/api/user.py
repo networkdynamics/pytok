@@ -176,7 +176,9 @@ class User(Base):
             params = url_parsers.parse_qs(url_parsed.query)
             params['count'] = count
             next_url = f"{url_parsed.scheme}://{url_parsed.netloc}{url_parsed.path}?{url_parsers.urlencode(params, doseq=True)}"
-            r = requests.get(next_url, headers=data_request.headers)
+            cookies = await self.parent._context.cookies()
+            cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+            r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
 
             if r.status_code != 200:
                 raise ApiFailedException(f"Failed to get videos from API with status code {r.status_code}")
@@ -203,7 +205,9 @@ class User(Base):
             params['secUid'] = self.sec_uid
             params['cursor'] = cursor
             next_url = f"{url_parsed.scheme}://{url_parsed.netloc}{url_parsed.path}?{url_parsers.urlencode(params, doseq=True)}"
-            r = requests.get(next_url, headers=data_request.headers)
+            cookies = await self.parent._context.cookies()
+            cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+            r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
 
             if r.status_code != 200:
                 raise ApiFailedException(f"Failed to get videos from API with status code {r.status_code}")

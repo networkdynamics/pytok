@@ -138,8 +138,9 @@ class Hashtag(Base):
             elif pull_method == 'requests':
                 cursor = res["cursor"]
                 next_url = re.sub("cursor=([0-9]+)", f"cursor={cursor}", request.url)
-
-                r = requests.get(next_url, headers=request.headers)
+                cookies = self.parent._context.cookies()
+                cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+                r = requests.get(next_url, headers=request.headers, cookies=cookies)
                 try:
                     res = r.json()
                 except json.decoder.JSONDecodeError:

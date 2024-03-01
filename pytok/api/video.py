@@ -120,8 +120,10 @@ class Video(Base):
         if page.url != url:
             await self.view()
         initial_html_response = self.get_responses(url)[-1]
-        server_addr = await initial_html_response.server_addr()
-        return server_addr
+        network_info = {}
+        network_info['server_addr'] = await initial_html_response.server_addr()
+        network_info['headers'] = await initial_html_response.all_headers()
+        return network_info
     
     async def bytes_network_info(self, **kwargs) -> dict:
         """
@@ -140,10 +142,12 @@ class Video(Base):
         for req in reqs:
             try:
                 res = await req.response()
-                server_addr = await res.server_addr()
+                network_info = {}
+                network_info['server_addr'] = await res.server_addr()
+                network_info['headers'] = await res.all_headers()
+                return network_info
             except Exception:
                 continue
-            return server_addr
         else:
             raise Exception("Failed to get video bytes")
 

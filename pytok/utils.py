@@ -174,7 +174,7 @@ def extract_video_features(video):
     hashtags = [extra['hashtagName'] for extra in video.get('textExtra', []) if extra.get('hashtagName', None)]
 
     # get all reply types
-    match = re.search("^\#([^# ]+) [^@# ]+ @([^ ]+)", video['desc'])
+    match = re.search(r"^\#([^# ]+) [^@# ]+ @([^ ]+)", video['desc'])
     if match and len(video_mentions) > 0:
         # if there are multiple mentions we get the first
         if video_mentions[0]['awemeId'] != '':

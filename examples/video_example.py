@@ -12,18 +12,10 @@ async def main():
 
         # Bytes of the TikTok video
         video_data = await video.info()
-        network_data = await video.network_info()
         video_bytes = await video.bytes()
-        bytes_network_data = await video.bytes_network_info()
-
-        all_data = {
-            "video_data": video_data,
-            "network_data": network_data,
-            "bytes_network_data": bytes_network_data
-        }
 
         with open("out.json", "w") as out_file:
-            json.dump(all_data, out_file)
+            json.dump(video_data, out_file)
 
         with open("out.mp4", "wb") as out_file:
             out_file.write(video_bytes)

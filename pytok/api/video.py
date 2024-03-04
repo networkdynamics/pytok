@@ -23,10 +23,11 @@ from .. import exceptions
 
 def edit_url(url, new_params):
     url_parsed = url_parsers.urlparse(url)
-    params = url_parsers.parse_qs(url_parsed.query)
+    params = url_parsers.parse_qs(url_parsed.query, keep_blank_values=True)
     for k, v in new_params.items():
         params[k] = [v]
-    return f"{url_parsed.scheme}://{url_parsed.netloc}{url_parsed.path}?{url_parsers.urlencode(params, doseq=True)}"
+    # url encode params chosen to match the tiktok url encoding method
+    return f"{url_parsed.scheme}://{url_parsed.netloc}{url_parsed.path}?{url_parsers.urlencode(params, doseq=True, safe='=', quote_via=url_parsers.quote)}"
 
 class Video(Base):
     """
@@ -74,8 +75,8 @@ class Video(Base):
             self.id = extract_video_id_from_url(url)
             self.username = extract_user_id_from_url(url)
 
-        if self.id is None or self.username is None:
-            raise TypeError("You must provide id and username or url parameter.")
+        if self.id is None and url is None:
+            raise TypeError("You must provide id or url parameter.")
 
 
     async def info(self, **kwargs) -> dict:
@@ -152,6 +153,8 @@ class Video(Base):
             raise Exception("Failed to get video bytes")
 
     def _get_url(self) -> str:
+        if not self.username or not self.id:
+            raise ValueError("You must provide the username and id to get the url.")
         return f"https://www.tiktok.com/@{self.username}/video/{self.id}"
 
     async def view(self, **kwargs) -> None:
@@ -287,30 +290,35 @@ class Video(Base):
             num_comments_to_fetch = comment['reply_comment_total'] - num_already_fetched
 
     async def comments(self, count=200, batch_size=100):
-        await self.view()
-        await self.wait_for_content_or_unavailable_or_captcha('css=[data-e2e=comment-level-1]', 'Be the first to comment!')
-        # TODO allow multi layer comment fetch
+        if self.id and self.username:
+            await self.view()
+            await self.wait_for_content_or_unavailable_or_captcha('css=[data-e2e=comment-level-1]', 'Be the first to comment!')
+            # TODO allow multi layer comment fetch
 
-        amount_yielded = 0
-        all_comments, processed_urls, finished = await self._get_comments_and_req(count)
+            amount_yielded = 0
+            all_comments, processed_urls, finished = await self._get_comments_and_req(count)
 
-        for comment in all_comments:
-            await self._get_comment_replies(comment, batch_size)
+            for comment in all_comments:
+                await self._get_comment_replies(comment, batch_size)
 
-        amount_yielded += len(all_comments)
-        for comment in all_comments:
-            yield comment
-
-        if finished:
-            return
-            
-        # so that we don't re-yield any comments previously yielded
-        comment_ids = set(comment['cid'] for comment in all_comments)
-        try:
-            async for comment in self._get_api_comments(count, batch_size, comment_ids):
+            amount_yielded += len(all_comments)
+            for comment in all_comments:
                 yield comment
-        except exceptions.ApiFailedException:
-            async for comment in self._get_scroll_comments(count, amount_yielded, processed_urls):
+
+            if finished:
+                return
+            
+            # so that we don't re-yield any comments previously yielded
+            comment_ids = set(comment['cid'] for comment in all_comments)
+            try:
+                async for comment in self._get_api_comments(count, batch_size, comment_ids):
+                    yield comment
+            except exceptions.ApiFailedException as e:
+                async for comment in self._get_scroll_comments(count, amount_yielded, processed_urls):
+                    yield comment
+        else:
+            # if we only have the video id, we need to entirely rely on the api
+            async for comment in self._get_api_comments(count, batch_size, set()):
                 yield comment
 
     async def _get_scroll_comments(self, count, amount_yielded, processed_urls):
@@ -365,25 +373,32 @@ class Video(Base):
     
         data_request = self.parent.request_cache['comments']
 
-        # try getting all at once
-        retries = 5
-        for _ in range(retries):
-            try:
-                ms_tokens = await self.parent.get_ms_tokens()
-                next_url = edit_url(data_request.url, {'count': count, 'cursor': '0', 'msToken': ms_tokens[-1]})
-                cookies = await self.parent._context.cookies()
-                cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-                r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
+        try:
+            amount_yielded = 0
+            cursor = 0
+            while amount_yielded < count:
+                # try directly requesting through browser
+                url = edit_url(data_request.url, {'count': 20, 'cursor': cursor, 'aweme_id': self.id})#, 'msToken': ms_tokens[-1]})
+                page = self.parent._page
+                async with page.expect_request(url) as event:
+                    await page.goto(url)
+                    request = await event.value
+                    response = await request.response()
+                    if response.status >= 300:
+                        raise exceptions.NotAvailableException("Content is not available")
 
-                if r.status_code != 200:
-                    raise Exception(f"Failed to get comments with status code {r.status_code}")
+                if response.status != 200:
+                    raise Exception(f"Failed to get comments with status code {response.status}")
 
-                if len(r.content) == 0:
+                content = await response.body()
+                if len(content) == 0:
                     raise Exception("No content in response")
 
-                res = r.json()
+                res = await response.json()
+                cursor = res.get("cursor", 0)
 
                 comments = res.get("comments", [])
+                amount_yielded += len(comments)
                 for comment in comments:
                     if comment['cid'] not in comment_ids:
                         try:
@@ -391,54 +406,85 @@ class Video(Base):
                         except Exception:
                             pass
                         yield comment
+        except Exception as e:
+            try:
+                # try getting all at once
+                retries = 5
+                for _ in range(retries):
+                    try:
+                        ms_tokens = await self.parent.get_ms_tokens()
+                        next_url = edit_url(data_request.url, {'count': count, 'cursor': '0', 'msToken': ms_tokens[-1]})
+                        cookies = await self.parent._context.cookies()
+                        cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+                        next_headers = await data_request.all_headers()
+                        next_headers['referer'] = self._get_url()
+                        r = requests.get(next_url, headers=next_headers, cookies=cookies)
 
-                return
+                        if r.status_code != 200:
+                            raise Exception(f"Failed to get comments with status code {r.status_code}")
+
+                        if len(r.content) == 0:
+                            raise Exception("No content in response")
+
+                        res = r.json()
+
+                        comments = res.get("comments", [])
+                        for comment in comments:
+                            if comment['cid'] not in comment_ids:
+                                try:
+                                    await self._get_comment_replies(comment, batch_size)
+                                except Exception:
+                                    pass
+                                yield comment
+
+                        return
+                    except Exception as e:
+                        pass
+                else:
+                    print("Failed to get all comments at once")
+                    print("Trying batched...")
             except Exception as e:
-                pass
-        else:
-            print("Failed to get all comments at once")
-            print("Trying batched...")
 
-        amount_yielded = len(comment_ids)
+                amount_yielded = len(comment_ids)
 
-        while amount_yielded < count:
-            ms_tokens = await self.parent.get_ms_tokens()
-            next_url = edit_url(data_request.url, {'count': count, 'cursor': '0', 'msToken': ms_tokens[-1]})
-            cookies = await self.parent._context.cookies()
-            cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-            r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
+                while amount_yielded < count:
+                    ms_tokens = await self.parent.get_ms_tokens()
+                    next_url = edit_url(data_request.url, {'count': count, 'cursor': '0', 'msToken': ms_tokens[-1]})
+                    cookies = await self.parent._context.cookies()
+                    cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+                    r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
 
-            if r.status_code != 200:
-                raise Exception(f"Failed to get comments with status code {r.status_code}")
+                    if r.status_code != 200:
+                        raise Exception(f"Failed to get comments with status code {r.status_code}")
 
-            if len(r.content) == 0:
-                print("Failed to comments from API, switching to scroll")
-                raise exceptions.ApiFailedException("No content in response")
+                    if len(r.content) == 0:
+                        print("Failed to comments from API, switching to scroll")
+                        raise exceptions.ApiFailedException("No content in response")
 
-            res = r.json()
+                    res = r.json()
 
-            if res.get('type') == 'verify':
-                # force new request for cache
-                self._get_comments_and_req()
+                    if res.get('type') == 'verify':
+                        # force new request for cache
+                        self._get_comments_and_req()
 
-            comments = res.get("comments", [])
+                    comments = res.get("comments", [])
 
-            if comments:
-                for comment in comments:
-                    self._get_comment_replies(comment, batch_size)
+                    if comments:
+                        for comment in comments:
+                            self._get_comment_replies(comment, batch_size)
 
-                amount_yielded += len(comments)
-                for comment in comments:
-                    yield comment
+                        amount_yielded += len(comments)
+                        for comment in comments:
+                            yield comment
 
-            has_more = res.get("has_more")
-            if has_more != 1:
-                self.parent.logger.info(
-                    "TikTok isn't sending more TikToks beyond this point."
-                )
-                return
+                    has_more = res.get("has_more")
+                    if has_more != 1:
+                        self.parent.logger.info(
+                            "TikTok isn't sending more TikToks beyond this point."
+                        )
+                        return
 
-            await self.parent.request_delay()
+                    await self.parent.request_delay()
 
     def __extract_from_data(self) -> None:
         data = self.as_dict

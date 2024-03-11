@@ -3,13 +3,12 @@ from __future__ import annotations
 import json
 import asyncio
 import re
-from urllib.parse import urlparse, urlencode
-from urllib import parse as url_parsers
+from urllib.parse import urlencode, urlparse
 
 import requests
 
 from ..exceptions import *
-from ..helpers import extract_tag_contents
+from ..helpers import extract_tag_contents, edit_url
 
 from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
 
@@ -172,10 +171,7 @@ class User(Base):
                 count = min(count, self.as_dict['stats']['videoCount'])
             else:
                 count = self.as_dict['stats']['videoCount']
-            url_parsed = url_parsers.urlparse(data_request.url)
-            params = url_parsers.parse_qs(url_parsed.query)
-            params['count'] = count
-            next_url = f"{url_parsed.scheme}://{url_parsed.netloc}{url_parsed.path}?{url_parsers.urlencode(params, doseq=True)}"
+            next_url = edit_url(data_request.url, {'cursor': final_cursor})
             cookies = await self.parent._context.cookies()
             cookies = {cookie['name']: cookie['value'] for cookie in cookies}
             r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
@@ -198,13 +194,7 @@ class User(Base):
             pass
 
         while (count is None or amount_yielded < count) and cursor < final_cursor:
-
-            url_parsed = url_parsers.urlparse(data_request.url)
-            params = url_parsers.parse_qs(url_parsed.query)
-            params['id'] = self.user_id
-            params['secUid'] = self.sec_uid
-            params['cursor'] = cursor
-            next_url = f"{url_parsed.scheme}://{url_parsed.netloc}{url_parsed.path}?{url_parsers.urlencode(params, doseq=True)}"
+            next_url = edit_url(data_request.url, {'cursor': cursor, 'id': self.user_id, 'secUid': self.sec_uid})
             cookies = await self.parent._context.cookies()
             cookies = {cookie['name']: cookie['value'] for cookie in cookies}
             r = requests.get(next_url, headers=data_request.headers, cookies=cookies)

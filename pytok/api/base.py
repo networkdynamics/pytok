@@ -16,7 +16,7 @@ def get_captcha_element(page):
     return page.locator('Rotate the shapes') \
         .or_(page.get_by_text('Verify to continue:', exact=True)) \
         .or_(page.get_by_text('Click on the shapes with the same size', exact=True)) \
-        .or_(page.get_by_text('Drag the slider to fit the puzzle', exact=True))
+        .or_(page.get_by_text('Drag the slider to fit the puzzle', exact=True).first)
 
 class Base:
 
@@ -74,10 +74,13 @@ class Base:
         if captcha_visible:
             await self.solve_captcha()
 
-        login_element = page.get_by_text('Log in to TikTok', exact=True)
+        login_element = get_login_close_element(page)
         login_visible = await login_element.is_visible()
         if login_visible:
-            await get_login_close_element(page).click()
+            login_close = get_login_close_element(page)
+            login_close_visible = await login_close.is_visible()
+            if login_close_visible:
+                await login_close.click()
 
         if await unavailable_element.is_visible():
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
@@ -155,9 +158,10 @@ class Base:
 
     async def check_and_close_signin(self):
         page = self.parent._page
-        signin_visible = await page.get_by_text('Sign in', exact=True).is_visible()
+        signin_element = get_login_close_element(page)
+        signin_visible = await signin_element.is_visible()
         if signin_visible:
-            await get_login_close_element(page).click()
+            await signin_element.click()
                 
     async def solve_captcha(self):
         request = self.get_requests('/captcha/get')[0]
@@ -168,7 +172,7 @@ class Base:
         elif 'challenges' in captcha_json['data']:
             captcha_data = captcha_json['data']['challenges'][0]
         captcha_type = captcha_data['mode']
-        if captcha_type != 'slide':
+        if captcha_type not in ['slide', 'whirl']:
             raise exceptions.CaptchaException(f"Unsupported captcha type: {captcha_type}")
         
         puzzle_req = self.get_requests(captcha_data['question']['url1'])[0]
@@ -190,6 +194,6 @@ class Base:
         await asyncio.sleep(1)
         page = self.parent._page
         await page.reload()
-        captcha_element = page.get_by_text('Verify to continue:', exact=True)
+        captcha_element = get_captcha_element(page)
         await expect(captcha_element).not_to_be_visible()
 

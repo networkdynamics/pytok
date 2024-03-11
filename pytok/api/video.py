@@ -17,17 +17,10 @@ if TYPE_CHECKING:
     from .hashtag import Hashtag
 
 from .base import Base
-from ..helpers import extract_tag_contents, add_if_not_replace
+from ..helpers import extract_tag_contents, edit_url
 from .. import exceptions
 
 
-def edit_url(url, new_params):
-    url_parsed = url_parsers.urlparse(url)
-    params = url_parsers.parse_qs(url_parsed.query, keep_blank_values=True)
-    for k, v in new_params.items():
-        params[k] = [v]
-    # url encode params chosen to match the tiktok url encoding method
-    return f"{url_parsed.scheme}://{url_parsed.netloc}{url_parsed.path}?{url_parsers.urlencode(params, doseq=True, safe='=', quote_via=url_parsers.quote)}"
 
 class Video(Base):
     """
@@ -323,6 +316,8 @@ class Video(Base):
 
     async def _get_scroll_comments(self, count, amount_yielded, processed_urls):
         page = self.parent._page
+        if page.url != self._get_url():
+            await self.view()
         tries = 0
 
         data_request_path = "api/comment/list"
@@ -413,7 +408,7 @@ class Video(Base):
                 for _ in range(retries):
                     try:
                         ms_tokens = await self.parent.get_ms_tokens()
-                        next_url = edit_url(data_request.url, {'count': count, 'cursor': '0', 'msToken': ms_tokens[-1]})
+                        next_url = edit_url(data_request.url, {'count': count, 'cursor': '0', 'aweme_id': self.id})
                         cookies = await self.parent._context.cookies()
                         cookies = {cookie['name']: cookie['value'] for cookie in cookies}
                         next_headers = await data_request.all_headers()
@@ -443,16 +438,20 @@ class Video(Base):
                 else:
                     print("Failed to get all comments at once")
                     print("Trying batched...")
+                    raise Exception("Failed to get comments")
             except Exception as e:
 
                 amount_yielded = len(comment_ids)
 
                 while amount_yielded < count:
                     ms_tokens = await self.parent.get_ms_tokens()
-                    next_url = edit_url(data_request.url, {'count': count, 'cursor': '0', 'msToken': ms_tokens[-1]})
+                    next_url = edit_url(data_request.url, {'count': 20, 'cursor': '0', 'aweme_id': self.id})
                     cookies = await self.parent._context.cookies()
                     cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-                    r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
+                    headers = await data_request.all_headers()
+                    headers = {k: v for k, v in headers.items() if not k.startswith(':')}
+                    headers['referer'] = None
+                    r = requests.get(next_url, headers=headers, cookies=cookies)
 
                     if r.status_code != 200:
                         raise Exception(f"Failed to get comments with status code {r.status_code}")

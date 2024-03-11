@@ -1,6 +1,7 @@
-from .exceptions import *
-
 import re
+from urllib import parse as url_parsers
+
+from .exceptions import *
 
 
 def extract_tag_contents(html):
@@ -64,4 +65,13 @@ def add_if_not_replace(text, pat, replace, add):
     else:
         text += add
         return text
+    
+def edit_url(url, new_params):
+    url_parsed = url_parsers.urlparse(url)
+    params = url_parsers.parse_qs(url_parsed.query, keep_blank_values=True)
+    for k, v in new_params.items():
+        params[k] = [v]
+    # url encode params chosen to match the tiktok url encoding method
+    return f"{url_parsed.scheme}://{url_parsed.netloc}{url_parsed.path}?{url_parsers.urlencode(params, doseq=True, safe='=', quote_via=url_parsers.quote)}"
+
 

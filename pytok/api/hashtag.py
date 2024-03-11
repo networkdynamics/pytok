@@ -1,11 +1,6 @@
 from __future__ import annotations
-import logging
 
-from urllib.parse import urlencode
-from ..exceptions import *
-import re
 import json
-import time
 
 from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
 
@@ -16,6 +11,8 @@ if TYPE_CHECKING:
     from .video import Video
 
 from .base import Base
+from ..helpers import edit_url
+from ..exceptions import *
 
 
 class Hashtag(Base):
@@ -88,69 +85,43 @@ class Hashtag(Base):
         url = f"https://www.tiktok.com/tag/{self.name}"
         await page.goto(url)
 
-        self.wait_for_content_or_captcha('challenge-item')
+        await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=challenge-item]', 'Not available')
+        await self.check_and_close_signin()
 
+        try:
+            async for video in self._get_videos_api(count, offset, **kwargs):
+                yield video
+        except ApiFailedException:
+            async for video in self._get_videos_scraping(count, offset, **kwargs):
+                yield video
+
+
+    async def _get_videos_scraping(self, count=30, offset=0, **kwargs):
         processed_urls = []
         amount_yielded = 0
         pull_method = 'browser'
         tries = 0
         MAX_TRIES = 5
-
         data_request_path = "api/challenge/item_list"
 
         while amount_yielded < count:
-            self.parent.request_delay()
+            await self.parent.request_delay()
 
-            if pull_method == 'browser':
-                search_requests = self.get_requests(data_request_path)
-                search_requests = [request for request in search_requests if request.url not in processed_urls]
-                for request in search_requests:
-                    processed_urls.append(request.url)
-                    body = self.get_response_body(request)
-                    res = json.loads(body)
-                    if res.get('type') == 'verify':
-                        # this is the captcha denied response
-                        continue
-
-                    videos = res.get("itemList", [])
-                    amount_yielded += len(videos)
-                    for video in videos:
-                        yield self.parent.video(data=video)
-
-                    if not res.get("hasMore", False):
-                        self.parent.logger.info(
-                            "TikTok isn't sending more TikToks beyond this point."
-                        )
-                        return
-
-                for _ in range(tries):
-                    self.slight_scroll_up()
-                    self.scroll_to_bottom()
-                    self.parent.request_delay()
+            search_requests = self.get_requests(data_request_path)
+            search_requests = [request for request in search_requests if request.url not in processed_urls]
+            for request in search_requests:
+                processed_urls.append(request.url)
+                response = await request.response()
                 try:
-                    self.wait_for_requests(data_request_path, timeout=tries*4)
-                except TimeoutException:
-                    tries += 1
-                    if tries > MAX_TRIES:
-                        raise
+                    body = await self.get_response_body(response)
+                except:
                     continue
-
-            elif pull_method == 'requests':
-                cursor = res["cursor"]
-                next_url = re.sub("cursor=([0-9]+)", f"cursor={cursor}", request.url)
-                cookies = self.parent._context.cookies()
-                cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-                r = requests.get(next_url, headers=request.headers, cookies=cookies)
-                try:
-                    res = r.json()
-                except json.decoder.JSONDecodeError:
-                    continue
-
+                res = json.loads(body)
                 if res.get('type') == 'verify':
-                    self.check_and_wait_for_captcha()
+                    # this is the captcha denied response
+                    continue
 
                 videos = res.get("itemList", [])
-
                 amount_yielded += len(videos)
                 for video in videos:
                     yield self.parent.video(data=video)
@@ -160,6 +131,51 @@ class Hashtag(Base):
                         "TikTok isn't sending more TikToks beyond this point."
                     )
                     return
+
+            for _ in range(tries):
+                self.slight_scroll_up()
+                self.scroll_to_bottom()
+                await self.parent.request_delay()
+            
+                search_requests = self.get_requests(data_request_path)
+                search_requests = [request for request in search_requests if request.url not in processed_urls]
+
+            if len(search_requests) == 0:
+                tries += 1
+                if tries > MAX_TRIES:
+                    raise
+                continue
+                
+
+    async def _get_videos_api(self, count=30, offset=0, **kwargs):
+        responses = self.get_responses("api/challenge/item_list")
+        response = responses[-1]
+
+        amount_yielded = 0
+        cursor = 0
+        while amount_yielded < count:
+            
+            next_url = edit_url(response.url, {"cursor": cursor})
+            cookies = await self.parent._context.cookies()
+            cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+            r = requests.get(next_url, headers=response.headers, cookies=cookies)
+            try:
+                res = r.json()
+            except json.decoder.JSONDecodeError:
+                continue
+
+            cursor = res["cursor"]
+            videos = res.get("itemList", [])
+
+            amount_yielded += len(videos)
+            for video in videos:
+                yield self.parent.video(data=video)
+
+            if not res.get("hasMore", False):
+                self.parent.logger.info(
+                    "TikTok isn't sending more TikToks beyond this point."
+                )
+                return
 
     def __extract_from_data(self):
         data = self.as_dict

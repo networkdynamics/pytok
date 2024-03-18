@@ -470,7 +470,7 @@ class Video(Base):
 
                     if comments:
                         for comment in comments:
-                            self._get_comment_replies(comment, batch_size)
+                            await self._get_comment_replies(comment, batch_size)
 
                         amount_yielded += len(comments)
                         for comment in comments:

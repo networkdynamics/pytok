@@ -413,6 +413,7 @@ class Video(Base):
                         cookies = {cookie['name']: cookie['value'] for cookie in cookies}
                         next_headers = await data_request.all_headers()
                         next_headers['referer'] = self._get_url()
+                        next_headers = {k: v for k, v in next_headers.items() if not k.startswith(':')}
                         r = requests.get(next_url, headers=next_headers, cookies=cookies)
 
                         if r.status_code != 200:
@@ -442,10 +443,10 @@ class Video(Base):
             except Exception as e:
 
                 amount_yielded = len(comment_ids)
-
+                cursor = 0
                 while amount_yielded < count:
                     ms_tokens = await self.parent.get_ms_tokens()
-                    next_url = edit_url(data_request.url, {'count': 20, 'cursor': '0', 'aweme_id': self.id})
+                    next_url = edit_url(data_request.url, {'count': 20, 'cursor': cursor, 'aweme_id': self.id})
                     cookies = await self.parent._context.cookies()
                     cookies = {cookie['name']: cookie['value'] for cookie in cookies}
                     headers = await data_request.all_headers()
@@ -466,6 +467,7 @@ class Video(Base):
                         # force new request for cache
                         self._get_comments_and_req()
 
+                    cursor = res.get("cursor", 0)
                     comments = res.get("comments", [])
 
                     if comments:

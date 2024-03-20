@@ -363,9 +363,9 @@ class Video(Base):
                 except Exception as e:
                     processed_urls.append(data_response.url)
 
-    async def _get_comments_via_requests(self, cursor, data_request):
+    async def _get_comments_via_requests(self, count, cursor, data_request):
         ms_tokens = await self.parent.get_ms_tokens()
-        next_url = edit_url(data_request.url, {'count': 20, 'cursor': cursor, 'aweme_id': self.id})
+        next_url = edit_url(data_request.url, {'count': count, 'cursor': cursor, 'aweme_id': self.id})
         cookies = await self.parent._context.cookies()
         cookies = {cookie['name']: cookie['value'] for cookie in cookies}
         headers = await data_request.all_headers()

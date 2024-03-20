@@ -363,6 +363,30 @@ class Video(Base):
                 except Exception as e:
                     processed_urls.append(data_response.url)
 
+    async def _get_comments_via_requests(self, cursor, data_request):
+        ms_tokens = await self.parent.get_ms_tokens()
+        next_url = edit_url(data_request.url, {'count': 20, 'cursor': cursor, 'aweme_id': self.id})
+        cookies = await self.parent._context.cookies()
+        cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+        headers = await data_request.all_headers()
+        headers = {k: v for k, v in headers.items() if not k.startswith(':')}
+        headers['referer'] = None
+        r = requests.get(next_url, headers=headers, cookies=cookies)
+
+        if r.status_code != 200:
+            raise Exception(f"Failed to get comments with status code {r.status_code}")
+
+        if len(r.content) == 0:
+            print("Failed to comments from API, switching to scroll")
+            raise exceptions.ApiFailedException("No content in response")
+            
+        try:
+            res = r.json()
+        except Exception:
+            res = json.loads(brotli.decompress(r.content).decode())
+
+        return res
+
     async def _get_api_comments(self, count, batch_size, comment_ids):
     
         data_request = self.parent.request_cache['comments']
@@ -406,22 +430,8 @@ class Video(Base):
                 retries = 5
                 for _ in range(retries):
                     try:
-                        ms_tokens = await self.parent.get_ms_tokens()
-                        next_url = edit_url(data_request.url, {'count': count, 'cursor': '0', 'aweme_id': self.id})
-                        cookies = await self.parent._context.cookies()
-                        cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-                        next_headers = await data_request.all_headers()
-                        next_headers['referer'] = self._get_url()
-                        next_headers = {k: v for k, v in next_headers.items() if not k.startswith(':')}
-                        r = requests.get(next_url, headers=next_headers, cookies=cookies)
-
-                        if r.status_code != 200:
-                            raise Exception(f"Failed to get comments with status code {r.status_code}")
-
-                        if len(r.content) == 0:
-                            raise Exception("No content in response")
-
-                        res = r.json()
+                        cursor = '0'
+                        res = await self._get_comments_via_requests(count, cursor, data_request)
 
                         comments = res.get("comments", [])
                         for comment in comments:
@@ -444,26 +454,7 @@ class Video(Base):
                 amount_yielded = len(comment_ids)
                 cursor = 0
                 while amount_yielded < count:
-                    ms_tokens = await self.parent.get_ms_tokens()
-                    next_url = edit_url(data_request.url, {'count': 20, 'cursor': cursor, 'aweme_id': self.id})
-                    cookies = await self.parent._context.cookies()
-                    cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-                    headers = await data_request.all_headers()
-                    headers = {k: v for k, v in headers.items() if not k.startswith(':')}
-                    headers['referer'] = None
-                    r = requests.get(next_url, headers=headers, cookies=cookies)
-
-                    if r.status_code != 200:
-                        raise Exception(f"Failed to get comments with status code {r.status_code}")
-
-                    if len(r.content) == 0:
-                        print("Failed to comments from API, switching to scroll")
-                        raise exceptions.ApiFailedException("No content in response")
-                        
-                    try:
-                        res = r.json()
-                    except Exception:
-                        res = json.loads(brotli.decompress(r.content).decode())
+                    res = await self._get_comments_via_requests(20, cursor, data_request)
 
                     if res.get('type') == 'verify':
                         # force new request for cache

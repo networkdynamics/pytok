@@ -3,3 +3,4 @@ playwright
 undetected-playwright
 pyvirtualdisplay
 opencv-python
+brotli

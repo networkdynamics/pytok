@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from urllib import parse as url_parsers
-from ..helpers import extract_video_id_from_url, extract_user_id_from_url
-from typing import TYPE_CHECKING, ClassVar, Optional
 from datetime import datetime
-import re
 import json
+from urllib import parse as url_parsers
+from typing import TYPE_CHECKING, ClassVar, Optional
 
+import brotli
 import requests
 
 if TYPE_CHECKING:
@@ -17,7 +16,7 @@ if TYPE_CHECKING:
     from .hashtag import Hashtag
 
 from .base import Base
-from ..helpers import extract_tag_contents, edit_url
+from ..helpers import extract_tag_contents, edit_url, extract_video_id_from_url, extract_user_id_from_url
 from .. import exceptions
 
 
@@ -460,8 +459,11 @@ class Video(Base):
                     if len(r.content) == 0:
                         print("Failed to comments from API, switching to scroll")
                         raise exceptions.ApiFailedException("No content in response")
-
-                    res = r.json()
+                        
+                    try:
+                        res = r.json()
+                    except Exception:
+                        res = json.loads(brotli.decompress(r.content).decode())
 
                     if res.get('type') == 'verify':
                         # force new request for cache

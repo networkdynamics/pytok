@@ -116,7 +116,13 @@ class User(Base):
             tag_contents = extract_tag_contents(html_body)
             data = json.loads(tag_contents)
 
-            user = data["UserModule"]["users"][self.username] | data["UserModule"]["stats"][self.username]
+            if 'UserModule' in data:
+                user = data["UserModule"]["users"][self.username] | data["UserModule"]["stats"][self.username]
+            elif '__DEFAULT_SCOPE__' in data:
+                user_info = data['__DEFAULT_SCOPE__']['webapp.user-detail']['userInfo']
+                user = user_info['user'] | user_info['stats']
+            else:
+                raise InvalidJSONException("Failed to find user data in HTML")
 
         self.as_dict = user
         return user
@@ -136,6 +142,8 @@ class User(Base):
             # do something
         ```
         """
+        if self.as_dict and self.as_dict['videoCount'] == 0:
+            return
         try:
             async for video in self._get_videos_api(count, get_bytes, **kwargs):
                 yield video
@@ -256,7 +264,7 @@ class User(Base):
         if page.url != url:
             await page.goto(url)
             self.check_initial_call(url)
-        await self.wait_for_content_or_captcha('[data-e2e=user-post-item]')
+        await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]', "This account is private")
 
         video_pull_method = 'scroll'
         if video_pull_method == 'scroll':

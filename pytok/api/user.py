@@ -119,7 +119,10 @@ class User(Base):
             if 'UserModule' in data:
                 user = data["UserModule"]["users"][self.username] | data["UserModule"]["stats"][self.username]
             elif '__DEFAULT_SCOPE__' in data:
-                user_info = data['__DEFAULT_SCOPE__']['webapp.user-detail']['userInfo']
+                user_detail = data['__DEFAULT_SCOPE__']['webapp.user-detail']
+                if user_detail['statusCode'] != 0:
+                    raise InvalidJSONException("Failed to find user data in HTML")
+                user_info = user_detail['userInfo']
                 user = user_info['user'] | user_info['stats']
             else:
                 raise InvalidJSONException("Failed to find user data in HTML")
@@ -252,6 +255,9 @@ class User(Base):
                     break
             except Exception as ex:
                 pass
+
+        if len(video_responses) == 0:
+            raise ApiFailedException("Failed to get videos from API")
 
         self.parent.request_cache['videos'] = video_responses[-1]
 

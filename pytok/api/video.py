@@ -92,7 +92,10 @@ class Video(Base):
             contents = extract_tag_contents(html_body)
             res = json.loads(contents)
 
-            video_data = res['__DEFAULT_SCOPE__']['webapp.video-detail']['itemInfo']['itemStruct']
+            video_detail = res['__DEFAULT_SCOPE__']['webapp.video-detail']
+            if video_detail['statusCode'] != 0:
+                raise exceptions.NotAvailableException(f"Content is not available with status message: {video_detail['statusMsg']}")
+            video_data = video_detail['itemInfo']['itemStruct']
             self.as_dict = video_data
         else:
             video_data = self.as_dict

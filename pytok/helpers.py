@@ -1,6 +1,8 @@
 import re
 from urllib import parse as url_parsers
 
+import requests
+
 from .exceptions import *
 
 

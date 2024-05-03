@@ -170,7 +170,7 @@ class Video(Base):
             if response.status >= 300:
                 raise exceptions.NotAvailableException("Content is not available")
         # TODO check with something else, sometimes no comments so this breaks
-        await asyncio.sleep(3)
+        await page.wait_for_load_state('networkidle')
         await self.check_for_unavailable_or_captcha('Video currently unavailable')
 
     async def bytes(self, **kwargs) -> bytes:

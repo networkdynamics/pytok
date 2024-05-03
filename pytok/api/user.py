@@ -94,15 +94,22 @@ class User(Base):
         url = f"https://www.tiktok.com/@{self.username}"
         if page.url != url:
             async with page.expect_request(url) as event:
-                await page.goto(url)
+                await page.goto(url, timeout=60 * 1000)
                 request = await event.value
                 response = await request.response()
                 if response.status >= 300:
                     raise NotAvailableException("Content is not available")
 
-        await asyncio.sleep(3)
-        await self.check_for_unavailable_or_captcha('User has no content')
-        await self.check_for_unavailable("Couldn't find this account")
+        try:
+            await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]', "Couldn't find this account", no_content_text="No content")
+            await self.check_for_unavailable_or_captcha('User has no content') # check for captcha
+            await page.wait_for_load_state('networkidle')
+            await self.check_for_unavailable_or_captcha('User has no content') # check for login
+            await self.check_for_unavailable("Couldn't find this account")
+        except NotAvailableException as ex:
+            raise
+        except Exception as ex:
+            raise TikTokException(f"Failed to navigate to user page: {ex}")
 
         data_responses = self.get_responses('api/user/detail')
         
@@ -353,44 +360,47 @@ class User(Base):
 
         # get initial html data
         html_req_path = f"@{self.username}"
-        initial_html_request = self.get_requests(html_req_path)[0]
-        initial_html_response = await initial_html_request.response()
-        html_body = await self.get_response_body(initial_html_response)
+        initial_html_requests = self.get_requests(html_req_path)
+        for initial_html_request in initial_html_requests:
+            initial_html_response = await initial_html_request.response()
+            html_body = await self.get_response_body(initial_html_response)
 
-        amount_yielded = 0
+            amount_yielded = 0
 
-        try:
-            tag_contents = extract_tag_contents(html_body)
-            res = json.loads(tag_contents)
+            try:
+                tag_contents = extract_tag_contents(html_body)
+                res = json.loads(tag_contents)
 
-            if 'ItemModule' in res:
-                videos = list(res['ItemModule'].values())
+                if 'ItemModule' in res:
+                    videos = list(res['ItemModule'].values())
 
-                video_users = res["UserModule"]["users"]
+                    video_users = res["UserModule"]["users"]
 
-                for video in videos:
-                    video['author'] = video_users[video['author']]
+                    for video in videos:
+                        video['author'] = video_users[video['author']]
 
-                if get_bytes:
-                    await self._load_each_video(videos)
+                    if get_bytes:
+                        await self._load_each_video(videos)
 
-                amount_yielded += len(videos)
-                video_objs = [self.parent.video(data=video) for video in videos]
+                    amount_yielded += len(videos)
+                    video_objs = [self.parent.video(data=video) for video in videos]
 
-                for video in video_objs:
-                    yield video
+                    for video in video_objs:
+                        yield video
 
-                has_more = res['ItemList']['user-post']['hasMore']
-                if not has_more:
-                    User.parent.logger.info(
-                        "TikTok isn't sending more TikToks beyond this point."
-                    )
-                    return
-                
-                if count and amount_yielded >= count:
-                    return
-        except Exception as ex:
-            pass
+                    has_more = res['ItemList']['user-post']['hasMore']
+                    if not has_more:
+                        User.parent.logger.info(
+                            "TikTok isn't sending more TikToks beyond this point."
+                        )
+                        return
+                    
+                    if count and amount_yielded >= count:
+                        return
+            except Exception as ex:
+                continue
+            else:
+                break
 
         data_request_path = "api/post/item_list"
         data_urls = []

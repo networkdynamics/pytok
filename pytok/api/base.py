@@ -46,19 +46,29 @@ class Base:
 
         return content_element
 
-    async def wait_for_content_or_unavailable_or_captcha(self, content_tag, unavailable_text):
+    async def wait_for_content_or_unavailable_or_captcha(self, content_tag, unavailable_text, no_content_text=None):
         page = self.parent._page
         content_element = page.locator(content_tag).first
         captcha_element = get_captcha_element(page)
         unavailable_element = page.get_by_text(unavailable_text, exact=True)
+        if no_content_text:
+            no_content_element = page.get_by_text(no_content_text, exact=True)
+        else:
+            no_content_element = None
         try:
+            expected_elements = content_element.or_(captcha_element).or_(unavailable_element)
+            if no_content_text:
+                expected_elements = expected_elements.or_(no_content_element)
             await expect(content_element.or_(captcha_element).or_(unavailable_element)).to_be_visible(timeout=TOK_DELAY * 1000)
         except TimeoutError as e:
             raise exceptions.TimeoutException(str(e))
 
         if await captcha_element.is_visible():
             await self.solve_captcha()
-            await expect(content_element.or_(unavailable_element)).to_be_visible(timeout=TOK_DELAY * 1000)
+            expected_elements = content_element.or_(unavailable_element)
+            if no_content_text:
+                expected_elements = expected_elements.or_(no_content_element)
+            await expect(expected_elements).to_be_visible(timeout=TOK_DELAY * 1000)
 
         if await unavailable_element.is_visible():
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")

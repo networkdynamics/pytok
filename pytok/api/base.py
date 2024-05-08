@@ -86,6 +86,7 @@ class Base:
             max_tries = 3
             captcha_exceptions = []
             while num_tries < max_tries:
+                num_tries += 1
                 try:
                     await self.solve_captcha()
                     await asyncio.sleep(1)
@@ -93,11 +94,11 @@ class Base:
                     await page.wait_for_load_state('networkidle', timeout=60*1000)
                     captcha_is_visible = await captcha_element.is_visible()
                     if captcha_is_visible:
+                        captcha_exceptions.append(exceptions.CaptchaException("Captcha is still visible after solving"))
                         continue
                     else:
                         break
                 except Exception as e:
-                    num_tries += 1
                     captcha_exceptions.append(e)
             else:
                 raise exceptions.CaptchaException(f"Failed to solve captcha after {max_tries} tries with errors: {captcha_exceptions}")

@@ -90,8 +90,12 @@ class Base:
                     await self.solve_captcha()
                     await asyncio.sleep(1)
                     await page.reload()
-                    await expect(captcha_element).not_to_be_visible()
-                    break
+                    await page.wait_for_load_state('networkidle', timeout=60*1000)
+                    captcha_is_visible = await captcha_element.is_visible()
+                    if captcha_is_visible:
+                        continue
+                    else:
+                        break
                 except Exception as e:
                     num_tries += 1
                     captcha_exceptions.append(e)

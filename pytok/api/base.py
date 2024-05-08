@@ -82,7 +82,21 @@ class Base:
 
         captcha_visible = await captcha_element.is_visible()
         if captcha_visible:
-            await self.solve_captcha()
+            num_tries = 0
+            max_tries = 3
+            captcha_exceptions = []
+            while num_tries < max_tries:
+                try:
+                    await self.solve_captcha()
+                    await asyncio.sleep(1)
+                    await page.reload()
+                    await expect(captcha_element).not_to_be_visible()
+                    break
+                except Exception as e:
+                    num_tries += 1
+                    captcha_exceptions.append(e)
+            else:
+                raise exceptions.CaptchaException(f"Failed to solve captcha after {max_tries} tries with errors: {captcha_exceptions}")
 
         login_element = get_login_close_element(page)
         login_visible = await login_element.is_visible()
@@ -200,10 +214,4 @@ class Base:
             raise exceptions.CaptchaException("Piece was not found in response")
 
         await captcha_solver.CaptchaSolver(captcha_response, puzzle, piece).solve_captcha()
-
-        await asyncio.sleep(1)
-        page = self.parent._page
-        await page.reload()
-        captcha_element = get_captcha_element(page)
-        await expect(captcha_element).not_to_be_visible()
 

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, ClassVar, Optional
 
 import brotli
 import requests
+from playwright._impl._errors import TimeoutError as PlaywrightTimeoutError
 
 if TYPE_CHECKING:
     from ..tiktok import PyTok
@@ -18,8 +19,6 @@ if TYPE_CHECKING:
 from .base import Base
 from ..helpers import extract_tag_contents, edit_url, extract_video_id_from_url, extract_user_id_from_url
 from .. import exceptions
-
-
 
 class Video(Base):
     """
@@ -163,15 +162,18 @@ class Video(Base):
         """
         page = self.parent._page
         url = self._get_url()
-        async with page.expect_request(url) as event:
-            await page.goto(url)
-            request = await event.value
-            response = await request.response()
-            if response.status >= 300:
-                raise exceptions.NotAvailableException("Content is not available")
-        # TODO check with something else, sometimes no comments so this breaks
-        await page.wait_for_load_state('networkidle')
-        await self.check_for_unavailable_or_captcha('Video currently unavailable')
+        try:
+            async with page.expect_request(url) as event:
+                await page.goto(url)
+                request = await event.value
+                response = await request.response()
+                if response.status >= 300:
+                    raise exceptions.NotAvailableException("Content is not available")
+            # TODO check with something else, sometimes no comments so this breaks
+            await page.wait_for_load_state('networkidle', timeout=60*1000)
+            await self.check_for_unavailable_or_captcha('Video currently unavailable')
+        except PlaywrightTimeoutError as e:
+            raise exceptions.TimeoutException(str(e))
 
     async def bytes(self, **kwargs) -> bytes:
         """

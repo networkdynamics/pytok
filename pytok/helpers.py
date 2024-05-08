@@ -34,7 +34,7 @@ def extract_tag_contents(html):
             if sigi_json:
                 return sigi_json.group(1)
             else:
-                raise Exception("Could not find __NEXT_DATA__ or SIGI_STATE")
+                raise NotAvailableException("Could not find the tag contents")
                 # not a reliable way to check for captchas
                 # raise CaptchaException(
                 #    "TikTok blocks this request displaying a Captcha \nTip: Consider using a proxy or a custom_verify_fp as method parameters"

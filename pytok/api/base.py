@@ -101,15 +101,18 @@ class Base:
                 except Exception as e:
                     captcha_exceptions.append(e)
             else:
-                raise exceptions.CaptchaException(f"Failed to solve captcha after {max_tries} tries with errors: {captcha_exceptions}")
+                print(f"Failed to solve captcha after {max_tries} tries with errors: {captcha_exceptions}, continuing anyway...")
 
         login_element = get_login_close_element(page)
         login_visible = await login_element.is_visible()
         if login_visible:
-            login_close = get_login_close_element(page)
-            login_close_visible = await login_close.is_visible()
-            if login_close_visible:
-                await login_close.click()
+            try:
+                login_close = get_login_close_element(page)
+                login_close_visible = await login_close.is_visible()
+                if login_close_visible:
+                    await login_close.click()
+            except Exception as e:
+                print(f"Failed to close login with error: {e}, continuing anyway...")
 
         if await unavailable_element.is_visible():
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")

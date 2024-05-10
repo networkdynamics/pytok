@@ -188,26 +188,28 @@ class Video(Base):
             output.write(video_bytes)
         ```
         """
-        play_path = url_parsers.urlparse(self.as_dict['video']['playAddr']).path
+        bytes_url = self.as_dict['video']['playAddr']
+        bytes_headers = {}
+        play_path = url_parsers.urlparse(bytes_url).path
         reqs = self.get_requests(play_path)
-        if len(reqs) == 0:
-            # TODO load page and pull
-            raise Exception("No requests found for video")
-        for req in reqs:
-            try:
-                res = await req.response()
-                body = await res.body()
-            except Exception:
-                continue
-            return body
-        else:
-            # send the request ourselves
-            cookies = await self.parent._context.cookies()
-            cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-            r = requests.get(req.url, headers=req.headers, cookies=cookies)
-            if r.content is not None or len(r.content) > 0:
-                return r.content
-            raise Exception("Failed to get video bytes")    
+        if len(reqs) > 0:
+            for req in reqs:
+                try:
+                    res = await req.response()
+                    body = await res.body()
+                except Exception:
+                    bytes_url = req.url
+                    bytes_headers = req.headers
+                    continue
+                return body
+            
+        # send the request ourselves
+        cookies = await self.parent._context.cookies()
+        cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+        r = requests.get(bytes_url, headers=bytes_headers, cookies=cookies)
+        if r.content is not None or len(r.content) > 0:
+            return r.content
+        raise Exception("Failed to get video bytes")    
 
     async def _get_comments_and_req(self, count):
         # get request

@@ -33,3 +33,6 @@ class TimeoutException(TikTokException):
 
 class ApiFailedException(TikTokException):
     """TikTok API is failing"""
+
+class FewerVideosThanExpectedException(TikTokException):
+    """TikTok is returning fewer videos for this user than their metadata led us to expect"""

@@ -4,3 +4,6 @@ undetected-playwright
 pyvirtualdisplay
 opencv-python
 brotli
+playwright-stealth
+pandas
+tqdm

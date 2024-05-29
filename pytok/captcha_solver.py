@@ -7,11 +7,12 @@ import base64
 import numpy as np
 import requests
 
+
 class CaptchaSolver:
     def __init__(self, response, puzzle, piece):
         self._request = response.request
         self._response = response
-        self._client     = requests.Session()
+        self._client = requests.Session()
         self._puzzle = base64.b64encode(puzzle)
         self._piece = base64.b64encode(piece)
 
@@ -36,7 +37,7 @@ class CaptchaSolver:
         randlength = round(
             random.random() * (100 - 50) + 50
         )
-        await asyncio.sleep(1) # don't remove delay or it will fail
+        await asyncio.sleep(1)  # don't remove delay or it will fail
         return {
             "maxloc": maxloc,
             "randlenght": randlength
@@ -87,26 +88,32 @@ class CaptchaSolver:
         headers = self._headers()
 
         resp = self._client.post(
-            url = (
-                "https://"
+            url=(
+                    "https://"
                     + host
                     + "/captcha/verify?"
                     + params
             ),
-            headers = headers.update(
-                    {
-                        "content-type": "application/json"
+            headers=headers.update(
+                {
+                    "content-type": "application/json"
                 }
             ),
-            json = body
+            json=body
         )
 
         if resp.status_code != 200:
             raise Exception("Captcha was not solved")
+        if resp.json()['code'] == 500:
+            # status code was 200, but perhaps the response was to say that the CAPTCHA failed.
+            raise Exception(f"CAPTCHA server responded 200 but said: {resp.json()['message']}")
+
+
 
         return resp.json()
 
     async def solve_captcha(self):
+        # this method is called
         captcha_challenge = await self._get_challenge()
 
         if 'mode' in captcha_challenge["data"]:
@@ -117,15 +124,16 @@ class CaptchaSolver:
         self._mode = captcha_challenge["mode"]
 
         solve = await self._solve_captcha()
-        
+
         solve['id'] = captcha_id
         if captcha_challenge["mode"] == "slide":
             tip_y = captcha_challenge["question"]["tip_y"]
             solve['tip'] = tip_y
         elif captcha_challenge["mode"] == "whirl":
             solve['tip'] = 0
-        
+
         return self._post_captcha(solve)
+
 
 class PuzzleSolver:
     def __init__(self, base64puzzle, base64piece):
@@ -136,8 +144,8 @@ class PuzzleSolver:
         puzzle = self._background_preprocessing()
         piece = self._piece_preprocessing()
         matched = cv2.matchTemplate(
-            puzzle, 
-            piece, 
+            puzzle,
+            piece,
             cv2.TM_CCOEFF_NORMED
         )
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(matched)
@@ -188,17 +196,17 @@ class PuzzleSolver:
 
     def _img_to_grayscale(self, img):
         return cv2.imdecode(
-          self._string_to_image(img),
-          cv2.IMREAD_COLOR
+            self._string_to_image(img),
+            cv2.IMREAD_COLOR
         )
 
     def _string_to_image(self, base64_string):
-
         return np.frombuffer(
-          base64.b64decode(base64_string),
-          dtype="uint8"
+            base64.b64decode(base64_string),
+            dtype="uint8"
         )
-    
+
+
 def _get_images_and_edges(b64_puzzle, b64_piece, resolution=300):
     puzzle = cv2.imdecode(np.frombuffer(base64.b64decode(b64_puzzle), dtype="uint8"), cv2.IMREAD_COLOR)
     piece = cv2.imdecode(np.frombuffer(base64.b64decode(b64_piece), dtype="uint8"), cv2.IMREAD_COLOR)
@@ -220,6 +228,7 @@ def _get_images_and_edges(b64_puzzle, b64_piece, resolution=300):
         piece_edge[idx] = piece[x, y]
 
     return puzzle, piece, puzzle_edge, piece_edge
+
 
 def whirl_solver(b64_puzzle, b64_piece):
     resolution = 300

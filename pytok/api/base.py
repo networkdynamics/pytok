@@ -8,15 +8,18 @@ from .. import exceptions, captcha_solver
 TOK_DELAY = 30
 CAPTCHA_DELAY = 999999
 
+
 def get_login_close_element(page):
     return page.get_by_text("Continue as guest", exact=True) \
         .or_(page.get_by_text("Continue without login", exact=True))
+
 
 def get_captcha_element(page):
     return page.locator('Rotate the shapes') \
         .or_(page.get_by_text('Verify to continue:', exact=True)) \
         .or_(page.get_by_text('Click on the shapes with the same size', exact=True)) \
         .or_(page.get_by_text('Drag the slider to fit the puzzle', exact=True).first)
+
 
 class Base:
 
@@ -35,7 +38,7 @@ class Base:
 
         try:
             await expect(content_element.or_(captcha_element)).to_be_visible(timeout=TOK_DELAY * 1000)
-            
+
         except TimeoutError as e:
             raise exceptions.TimeoutException(str(e))
 
@@ -59,16 +62,24 @@ class Base:
             expected_elements = content_element.or_(captcha_element).or_(unavailable_element)
             if no_content_text:
                 expected_elements = expected_elements.or_(no_content_element)
-            await expect(content_element.or_(captcha_element).or_(unavailable_element)).to_be_visible(timeout=TOK_DELAY * 1000)
+            try:
+                await expect(content_element.or_(captcha_element).or_(unavailable_element)).to_be_visible(
+                    timeout=TOK_DELAY * 1000)
+            except Exception as e:
+                print(
+                    e)  # TODO: playwright may throw a strict mode violation error here; handle it at top layer
+                raise
         except TimeoutError as e:
             raise exceptions.TimeoutException(str(e))
 
         if await captcha_element.is_visible():
             await self.solve_captcha()
+            await page.reload()  # must reload the target handle's home page to clear the CAPTCHA pop-up window
             expected_elements = content_element.or_(unavailable_element)
             if no_content_text:
                 expected_elements = expected_elements.or_(no_content_element)
-            await expect(expected_elements).to_be_visible(timeout=TOK_DELAY * 1000)
+            await expect(expected_elements).to_be_visible(
+                timeout=TOK_DELAY * 1000)  # waits TOK_DELAY seconds and launches new browser instance
 
         if await unavailable_element.is_visible():
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
@@ -91,7 +102,7 @@ class Base:
                     await self.solve_captcha()
                     await asyncio.sleep(1)
                     await page.reload()
-                    await page.wait_for_load_state('networkidle', timeout=60*1000)
+                    await page.wait_for_load_state('networkidle', timeout=60 * 1000)
                     captcha_is_visible = await captcha_element.is_visible()
                     if captcha_is_visible:
                         captcha_exceptions.append(exceptions.CaptchaException("Captcha is still visible after solving"))
@@ -101,7 +112,8 @@ class Base:
                 except Exception as e:
                     captcha_exceptions.append(e)
             else:
-                print(f"Failed to solve captcha after {max_tries} tries with errors: {captcha_exceptions}, continuing anyway...")
+                print(
+                    f"Failed to solve captcha after {max_tries} tries with errors: {captcha_exceptions}, continuing anyway...")
 
         login_element = get_login_close_element(page)
         login_visible = await login_element.is_visible()
@@ -116,13 +128,12 @@ class Base:
 
         if await unavailable_element.is_visible():
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
-        
+
     async def check_for_unavailable(self, unavailable_text):
         page = self.parent._page
         unavailable_element = page.get_by_text(unavailable_text, exact=True)
         if await unavailable_element.is_visible():
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
-
 
     async def wait_for_requests(self, api_path, timeout=TOK_DELAY):
         page = self.parent._page
@@ -134,7 +145,7 @@ class Base:
 
     def get_requests(self, api_path):
         return [request for request in self.parent._requests if api_path in request.url]
-    
+
     def get_responses(self, api_path):
         return [response for response in self.parent._responses if api_path in response.url]
 
@@ -143,7 +154,8 @@ class Base:
 
     async def scroll_to_bottom(self, speed=4):
         page = self.parent._page
-        current_scroll_position = await page.evaluate("() => document.documentElement.scrollTop || document.body.scrollTop;")
+        current_scroll_position = await page.evaluate(
+            "() => document.documentElement.scrollTop || document.body.scrollTop;")
         new_height = current_scroll_position + 1
         while current_scroll_position <= new_height:
             current_scroll_position += speed + random.randint(-speed, speed)
@@ -152,7 +164,8 @@ class Base:
 
     async def scroll_to(self, position, speed=5):
         page = self.parent._page
-        current_scroll_position = await page.evaluate("() => document.documentElement.scrollTop || document.body.scrollTop;")
+        current_scroll_position = await page.evaluate(
+            "() => document.documentElement.scrollTop || document.body.scrollTop;")
         new_height = current_scroll_position + 1
         while current_scroll_position <= new_height:
             current_scroll_position += speed + random.randint(-speed, speed)
@@ -194,11 +207,18 @@ class Base:
         signin_visible = await signin_element.is_visible()
         if signin_visible:
             await signin_element.click()
-                
+
     async def solve_captcha(self):
+        """
+        this method not only calculates the CAPTCHA solution but also POSTs it to TikTok's server.
+        """
         request = self.get_requests('/captcha/get')[0]
         captcha_response = await request.response()
-        captcha_json = await captcha_response.json()
+        if captcha_response is not None:
+            captcha_json = await captcha_response.json()
+        else:
+            raise exceptions.EmptyResponseException
+
         if 'mode' in captcha_json['data']:
             captcha_data = captcha_json['data']
         elif 'challenges' in captcha_json['data']:
@@ -206,7 +226,12 @@ class Base:
         captcha_type = captcha_data['mode']
         if captcha_type not in ['slide', 'whirl']:
             raise exceptions.CaptchaException(f"Unsupported captcha type: {captcha_type}")
-        
+
+        """
+        captcha_data['question']['url1'] is a URL from TikTok's content delivery network. If you copy-paste it into your
+        web browser, you should GET the puzzle image. puzzle_response is the full response from the server, and
+        puzzle is the image itself, returned as a sequence of bytes.
+        """
         puzzle_req = self.get_requests(captcha_data['question']['url1'])[0]
         puzzle_response = await puzzle_req.response()
         puzzle = await puzzle_response.body()
@@ -214,6 +239,12 @@ class Base:
         if not puzzle:
             raise exceptions.CaptchaException("Puzzle was not found in response")
 
+        """
+        captcha_data['question']['url2'] is a URL from TikTok's content delivery network. If you copy-paste it into your
+        web browser, you should GET the puzzle piece that has to be moved to the correct position in the puzzle. 
+        piece_response: the full Playwright/HTTP response object
+        piece: the image of the puzzle piece, returned as a sequence of bytes
+        """
         piece_req = self.get_requests(captcha_data['question']['url2'])[0]
         piece_response = await piece_req.response()
         piece = await piece_response.body()
@@ -221,5 +252,10 @@ class Base:
         if not piece:
             raise exceptions.CaptchaException("Piece was not found in response")
 
-        await captcha_solver.CaptchaSolver(captcha_response, puzzle, piece).solve_captcha()
-
+        """
+        -at this point in the code you have the puzzle image (puzzle) and the piece image (piece)
+        -now a local CAPTCHA solver will decide how to place the piece in the puzzle
+        -finally, the solution will be POSTed to TikTok, and the server's response will be obtained
+        """
+        response_after_posting_captcha_solution_to_tiktok_api = await captcha_solver.CaptchaSolver(captcha_response, puzzle,
+                                                                                              piece).solve_captcha()

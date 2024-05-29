@@ -5,6 +5,7 @@ import asyncio
 import re
 from urllib.parse import urlencode, urlparse
 
+import playwright.async_api
 import requests
 
 from ..exceptions import *
@@ -46,11 +47,11 @@ class User(Base):
     """The raw data associated with this user."""
 
     def __init__(
-        self,
-        username: Optional[str] = None,
-        user_id: Optional[str] = None,
-        sec_uid: Optional[str] = None,
-        data: Optional[dict] = None,
+            self,
+            username: Optional[str] = None,
+            user_id: Optional[str] = None,
+            sec_uid: Optional[str] = None,
+            data: Optional[dict] = None,
     ):
         """
         You must provide the username or (user_id and sec_uid) otherwise this
@@ -101,18 +102,25 @@ class User(Base):
                     raise NotAvailableException("Content is not available")
 
         try:
-            await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]', "Couldn't find this account", no_content_text="No content")
-            await self.check_for_unavailable_or_captcha('User has no content') # check for captcha
+            await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]',
+                                                                  "Couldn't find this account",
+                                                                  no_content_text="No content")
+            await self.check_for_unavailable_or_captcha('User has no content')  # check for captcha
             await page.wait_for_load_state('networkidle')
-            await self.check_for_unavailable_or_captcha('User has no content') # check for login
+            await self.check_for_unavailable_or_captcha('User has no content')  # check for login
             await self.check_for_unavailable("Couldn't find this account")
-        except NotAvailableException as ex:
-            raise
         except Exception as ex:
-            raise TikTokException(f"Failed to navigate to user page: {ex}")
+            if isinstance(ex, playwright.async_api.TimeoutError):
+                raise
+            elif isinstance(ex, NotAvailableException):
+                raise
+            elif isinstance(ex, EmptyResponseException):
+                raise
+            else:
+                raise TikTokException(f"Failed to navigate to user page: {ex}")
 
         data_responses = self.get_responses('api/user/detail')
-        
+
         if len(data_responses) > 0:
             data_response = data_responses[-1]
             data = await data_response.json()
@@ -162,7 +170,6 @@ class User(Base):
                 yield video
         except Exception as ex:
             raise
-
 
     async def _get_videos_api(self, count, get_bytes, **kwargs) -> Iterator[Video]:
         amount_yielded = 0
@@ -355,7 +362,6 @@ class User(Base):
 
             await self.parent.request_delay()
 
-
     async def _get_videos_scroll(self, count, get_bytes):
 
         # get initial html data
@@ -394,7 +400,7 @@ class User(Base):
                             "TikTok isn't sending more TikToks beyond this point."
                         )
                         return
-                    
+
                     if count and amount_yielded >= count:
                         return
             except Exception as ex:
@@ -466,7 +472,6 @@ class User(Base):
                     return
 
         return
-
 
     def liked(self, count: int = 30, cursor: int = 0, **kwargs) -> Iterator[Video]:
         """

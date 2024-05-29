@@ -20,6 +20,7 @@ from .base import Base
 from ..helpers import extract_tag_contents, edit_url, extract_video_id_from_url, extract_user_id_from_url
 from .. import exceptions
 
+
 class Video(Base):
     """
     A TikTok Video class
@@ -48,11 +49,11 @@ class Video(Base):
     """The raw data associated with this Video."""
 
     def __init__(
-        self,
-        id: Optional[str] = None,
-        username: Optional[str] = None,
-        url: Optional[str] = None,
-        data: Optional[dict] = None,
+            self,
+            id: Optional[str] = None,
+            username: Optional[str] = None,
+            url: Optional[str] = None,
+            data: Optional[dict] = None,
     ):
         """
         You must provide the id or a valid url, else this will fail.
@@ -68,7 +69,6 @@ class Video(Base):
 
         if self.id is None and url is None:
             raise TypeError("You must provide id or url parameter.")
-
 
     async def info(self, **kwargs) -> dict:
         """
@@ -93,14 +93,15 @@ class Video(Base):
 
             video_detail = res['__DEFAULT_SCOPE__']['webapp.video-detail']
             if video_detail['statusCode'] != 0:
-                raise exceptions.NotAvailableException(f"Content is not available with status message: {video_detail['statusMsg']}")
+                raise exceptions.NotAvailableException(
+                    f"Content is not available with status message: {video_detail['statusMsg']}")
             video_data = video_detail['itemInfo']['itemStruct']
             self.as_dict = video_data
         else:
             video_data = self.as_dict
 
         return video_data
-    
+
     async def network_info(self, **kwargs) -> dict:
         """
         Returns a dictionary of all network data associated with a TikTok Video.
@@ -119,7 +120,7 @@ class Video(Base):
         network_info['server_addr'] = await initial_html_response.server_addr()
         network_info['headers'] = await initial_html_response.all_headers()
         return network_info
-    
+
     async def bytes_network_info(self, **kwargs) -> dict:
         """
         Returns a dictionary of all network data associated with a TikTok Video.
@@ -170,7 +171,7 @@ class Video(Base):
                 if response.status >= 300:
                     raise exceptions.NotAvailableException("Content is not available")
             # TODO check with something else, sometimes no comments so this breaks
-            await page.wait_for_load_state('networkidle', timeout=60*1000)
+            await page.wait_for_load_state('networkidle', timeout=60 * 1000)
             await self.check_for_unavailable_or_captcha('Video currently unavailable')
         except PlaywrightTimeoutError as e:
             raise exceptions.TimeoutException(str(e))
@@ -202,14 +203,14 @@ class Video(Base):
                     bytes_headers = req.headers
                     continue
                 return body
-            
+
         # send the request ourselves
         cookies = await self.parent._context.cookies()
         cookies = {cookie['name']: cookie['value'] for cookie in cookies}
         r = requests.get(bytes_url, headers=bytes_headers, cookies=cookies)
         if r.content is not None or len(r.content) > 0:
             return r.content
-        raise Exception("Failed to get video bytes")    
+        raise Exception("Failed to get video bytes")
 
     async def _get_comments_and_req(self, count):
         # get request
@@ -228,7 +229,7 @@ class Video(Base):
                 self.parent.request_cache['comments'] = data_response.request
 
                 processed_urls.append(data_response.url)
-        
+
                 comments = res.get("comments", [])
 
                 amount_yielded += len(comments)
@@ -252,7 +253,8 @@ class Video(Base):
         if 'comments' not in self.parent.request_cache:
             return
         data_request = self.parent.request_cache['comments']
-        num_already_fetched = len(comment.get('reply_comment', []) if comment.get('reply_comment', []) is not None else [])
+        num_already_fetched = len(
+            comment.get('reply_comment', []) if comment.get('reply_comment', []) is not None else [])
         num_comments_to_fetch = comment['reply_comment_total'] - num_already_fetched
         while num_comments_to_fetch > 0:
 
@@ -274,7 +276,8 @@ class Video(Base):
             reply_comments = res.get("comments", [])
 
             if reply_comments:
-                comment['reply_comment'] = comment['reply_comment'] + reply_comments if comment['reply_comment'] else reply_comments
+                comment['reply_comment'] = comment['reply_comment'] + reply_comments if comment[
+                    'reply_comment'] else reply_comments
 
             has_more = res.get("has_more")
             if has_more != 1:
@@ -291,7 +294,8 @@ class Video(Base):
     async def comments(self, count=200, batch_size=100):
         if self.id and self.username:
             await self.view()
-            await self.wait_for_content_or_unavailable_or_captcha('css=[data-e2e=comment-level-1]', 'Be the first to comment!')
+            await self.wait_for_content_or_unavailable_or_captcha('css=[data-e2e=comment-level-1]',
+                                                                  'Be the first to comment!')
             # TODO allow multi layer comment fetch
 
             amount_yielded = 0
@@ -306,7 +310,7 @@ class Video(Base):
 
             if finished:
                 return
-            
+
             # so that we don't re-yield any comments previously yielded
             comment_ids = set(comment['cid'] for comment in all_comments)
             try:
@@ -335,7 +339,8 @@ class Video(Base):
             await self.check_and_close_signin()
 
             data_responses = self.get_responses(data_request_path)
-            data_responses = [data_response for data_response in data_responses if data_response.url not in processed_urls]
+            data_responses = [data_response for data_response in data_responses if
+                              data_response.url not in processed_urls]
 
             if len(data_responses) == 0:
                 if tries > 5:
@@ -348,7 +353,7 @@ class Video(Base):
                     res = await data_response.json()
 
                     processed_urls.append(data_response.url)
-            
+
                     comments = res.get("comments", [])
 
                     for comment in comments:
@@ -386,7 +391,7 @@ class Video(Base):
         if len(r.content) == 0:
             print("Failed to comments from API, switching to scroll")
             raise exceptions.ApiFailedException("No content in response")
-            
+
         try:
             res = r.json()
         except Exception:
@@ -395,7 +400,7 @@ class Video(Base):
         return res
 
     async def _get_api_comments(self, count, batch_size, comment_ids):
-    
+
         data_request = self.parent.request_cache['comments']
 
         try:
@@ -403,7 +408,8 @@ class Video(Base):
             cursor = 0
             while amount_yielded < count:
                 # try directly requesting through browser
-                url = edit_url(data_request.url, {'count': 20, 'cursor': cursor, 'aweme_id': self.id})#, 'msToken': ms_tokens[-1]})
+                url = edit_url(data_request.url,
+                               {'count': 20, 'cursor': cursor, 'aweme_id': self.id})  # , 'msToken': ms_tokens[-1]})
                 page = self.parent._page
                 async with page.expect_request(url) as event:
                     await page.goto(url)

@@ -8,9 +8,11 @@ import tqdm
 
 LOGGER_NAME: str = "PyTok"
 
+
 def update_if_not_none(dict1, dict2):
-    dict1.update((k,v) for k,v in dict2.items() if v is not None)
+    dict1.update((k, v) for k, v in dict2.items() if v is not None)
     return dict1
+
 
 def _get_comment_features(comment):
     comment_user = comment['user']
@@ -33,6 +35,7 @@ def _get_comment_features(comment):
 
     return author_id, author_name, mentioned_users
 
+
 def load_comment_df_from_files(file_paths):
     comments = []
     for file_path in tqdm.tqdm(file_paths):
@@ -45,6 +48,7 @@ def load_comment_df_from_files(file_paths):
         comments.extend(comments)
 
     return get_comment_df(comments)
+
 
 def get_comment_df(comments):
     comments_data = []
@@ -65,9 +69,9 @@ def get_comment_df(comments):
 
                 comments_data.append((
                     reply_comment['cid'],
-                    datetime.utcfromtimestamp(reply_comment['create_time']), 
+                    datetime.utcfromtimestamp(reply_comment['create_time']),
                     reply_author_name,
-                    reply_author_id, 
+                    reply_author_id,
                     reply_comment['text'],
                     reply_mentioned_users,
                     reply_comment['aweme_id'],
@@ -78,9 +82,9 @@ def get_comment_df(comments):
 
         comments_data.append((
             comment['cid'],
-            datetime.utcfromtimestamp(comment['create_time']), 
+            datetime.utcfromtimestamp(comment['create_time']),
             author_name,
-            author_id, 
+            author_id,
             comment['text'],
             mentioned_users,
             comment['aweme_id'],
@@ -89,14 +93,17 @@ def get_comment_df(comments):
             None
         ))
 
-    comment_df = pd.DataFrame(comments_data, columns=['comment_id', 'createtime', 'author_name', 'author_id', 'text', 'mentions', 'video_id', 'comment_language', 'like_count', 'reply_comment_id'])
+    comment_df = pd.DataFrame(comments_data,
+                              columns=['comment_id', 'createtime', 'author_name', 'author_id', 'text', 'mentions',
+                                       'video_id', 'comment_language', 'like_count', 'reply_comment_id'])
     comment_df = comment_df.drop_duplicates('comment_id')
     comment_df = comment_df[comment_df['text'].notna()]
     comment_df = comment_df[comment_df['video_id'].notna()]
     comment_df = comment_df[comment_df['mentions'].notna()]
-    comment_df['text'] = comment_df['text'].str.replace(r'\n',  ' ', regex=True)
-    comment_df['text'] = comment_df['text'].str.replace(r'\r',  ' ', regex=True)
+    comment_df['text'] = comment_df['text'].str.replace(r'\n', ' ', regex=True)
+    comment_df['text'] = comment_df['text'].str.replace(r'\r', ' ', regex=True)
     return comment_df
+
 
 def try_load_comment_df_from_file(file_path, file_paths=[]):
     assert file_path.endswith('.parquet.gzip') or file_path.endswith('.csv'), "File path must be a parquet or csv file"
@@ -106,13 +113,17 @@ def try_load_comment_df_from_file(file_path, file_paths=[]):
             comment_df = pd.read_csv(file_path)
         elif file_path.endswith('.parquet.gzip'):
             comment_df = pd.read_parquet(file_path)
-        comment_df[['comment_id', 'author_name', 'author_id', 'text', 'video_id', 'comment_language', 'reply_comment_id']] = comment_df[['comment_id', 'author_name', 'author_id', 'text', 'video_id', 'comment_language', 'reply_comment_id']].astype(str)
+        comment_df[
+            ['comment_id', 'author_name', 'author_id', 'text', 'video_id', 'comment_language', 'reply_comment_id']] = \
+        comment_df[['comment_id', 'author_name', 'author_id', 'text', 'video_id', 'comment_language',
+                    'reply_comment_id']].astype(str)
         comment_df['mentions'] = comment_df['mentions'].apply(_str_to_list)
         comment_df['createtime'] = pd.to_datetime(comment_df['createtime'])
         comment_df['createtime'] = comment_df['createtime'].astype('datetime64[ns]')
     else:
         if not file_paths:
-            raise ValueError(f"Parquet file: {file_path} does not exist, and no file paths provided to generate dataframe")
+            raise ValueError(
+                f"Parquet file: {file_path} does not exist, and no file paths provided to generate dataframe")
 
         comment_df = load_comment_df_from_files(file_paths)
 
@@ -129,6 +140,7 @@ def _str_to_list(stri):
         return []
     return [word.strip()[1:-1] for word in stri[1:-1].split(',')]
 
+
 def try_load_video_df_from_file(file_path, file_paths=[]):
     assert file_path.endswith('.parquet.gzip') or file_path.endswith('.csv'), "File path must be a parquet or csv file"
     if os.path.exists(file_path):
@@ -136,8 +148,11 @@ def try_load_video_df_from_file(file_path, file_paths=[]):
             video_df = pd.read_csv(file_path)
         elif file_path.endswith('.parquet.gzip'):
             video_df = pd.read_parquet(file_path)
-        
-        video_df[['video_id', 'author_name', 'author_id', 'desc', 'share_video_id', 'share_video_user_id', 'share_type']] = video_df[['video_id', 'author_name', 'author_id', 'desc', 'share_video_id', 'share_video_user_id', 'share_type']].astype(str)
+
+        video_df[
+            ['video_id', 'author_name', 'author_id', 'desc', 'share_video_id', 'share_video_user_id', 'share_type']] = \
+        video_df[['video_id', 'author_name', 'author_id', 'desc', 'share_video_id', 'share_video_user_id',
+                  'share_type']].astype(str)
         video_df['createtime'] = pd.to_datetime(video_df['createtime'])
         video_df['mentions'] = video_df['mentions'].apply(_str_to_list)
         video_df['hashtags'] = video_df['hashtags'].apply(_str_to_list)
@@ -158,7 +173,7 @@ def try_load_video_df_from_file(file_path, file_paths=[]):
                 videos.append(file_data)
             else:
                 raise ValueError()
-            
+
         video_df = get_video_df(videos)
         if file_path.endswith('.csv'):
             video_df.to_csv(file_path, index=False)
@@ -166,9 +181,11 @@ def try_load_video_df_from_file(file_path, file_paths=[]):
             video_df.to_parquet(file_path, compression='gzip', index=False)
         return video_df
 
+
 def extract_video_features(video):
     # get text extra relating to user names
-    video_mentions = [extra for extra in video.get('textExtra', []) if extra.get('userId', None) and extra['userId'] != '0']
+    video_mentions = [extra for extra in video.get('textExtra', []) if
+                      extra.get('userId', None) and extra['userId'] != '0']
 
     # get all hashtags used in the description
     hashtags = [extra['hashtagName'] for extra in video.get('textExtra', []) if extra.get('hashtagName', None)]
@@ -184,9 +201,10 @@ def extract_video_features(video):
         else:
             # no way to get shared video id
             share_video_id = None
-        
+
         share_video_user_id = video_mentions[0]['userId']
-        share_video_user_name = video_mentions[0]['userUniqueId']
+        share_video_user_name = video_mentions[0]['userUniqueId'] if 'userUniqueId' in video_mentions[
+            0].keys() else None
         share_type = match.group(1)
 
         video_mentions = video_mentions[1:]
@@ -206,27 +224,29 @@ def extract_video_features(video):
         else:
             duet_info = video_mentions[0]
             share_video_id = video['duetInfo']['duetFromId']
-        
+
         share_video_user_id = duet_info['userId']
         share_video_user_name = duet_info['userUniqueId']
         share_type = 'duet'
 
-        video_mentions = [mention for mention in video_mentions if mention['awemeId'] != video['duetInfo']['duetFromId']]
+        video_mentions = [mention for mention in video_mentions if
+                          mention['awemeId'] != video['duetInfo']['duetFromId']]
 
     # get user mentions
     mentions = []
     if len(video_mentions) > 0:
         mentions = [mention['userId'] for mention in video_mentions]
 
-    if video.get('duetInfo', None) and video['duetInfo']['duetFromId'] != '0' and share_video_id and video['duetInfo']['duetFromId'] != share_video_id:
+    if video.get('duetInfo', None) and video['duetInfo']['duetFromId'] != '0' and share_video_id and video['duetInfo'][
+        'duetFromId'] != share_video_id:
         raise ValueError("Comment metadata is mismatched")
 
     vid_features = (
         video['id'],
-        datetime.utcfromtimestamp(int(video['createTime'])), 
-        video['author']['uniqueId'], 
+        datetime.utcfromtimestamp(int(video['createTime'])),
+        video['author']['uniqueId'],
         video['author']['id'],
-        video['desc'], 
+        video['desc'],
         hashtags,
         share_video_id,
         share_video_user_id,
@@ -240,6 +260,7 @@ def extract_video_features(video):
     )
     return vid_features
 
+
 def get_video_df(videos):
     vids_data = []
     for video in videos:
@@ -251,7 +272,7 @@ def get_video_df(videos):
         'share_video_id', 'share_video_user_id', 'share_video_user_name', 'share_type', 'mentions',
         'digg_count', 'share_count', 'comment_count', 'view_count'
     ])
-    
+
     return video_df
 
 
@@ -288,7 +309,7 @@ def try_load_user_df_from_file(file_path, file_paths=[]):
                 entities += file_data
             else:
                 raise ValueError()
-            
+
         user_df = get_user_df(entities)
         # protect against people with \r as nickname, how dare they
         if file_path.endswith('.csv'):
@@ -297,8 +318,9 @@ def try_load_user_df_from_file(file_path, file_paths=[]):
             user_df.to_parquet(file_path, compression='gzip', index=False)
         return user_df
 
+
 def get_user_df(entities):
-    users = {} 
+    users = {}
     for entity in entities:
         if 'user' in entity:
             user_info = entity['user']
@@ -329,7 +351,7 @@ def get_user_df(entities):
                 users[user_id] = update_if_not_none(users[user_id], user_info)
             else:
                 users[user_id] = user_info
-        
+
         elif 'followerCount' in entity:
             user_info = entity
             user_id = user_info['uniqueId']
@@ -366,20 +388,24 @@ def get_user_df(entities):
         user_df = user_df.drop(columns=['uid'])
 
     # thank you dfir!!! https://dfir.blog/tinkering-with-tiktok-timestamps/
-    user_df.loc[user_df['id'].notna(), 'createtime'] = user_df.loc[user_df['id'].notna(), 'id'].apply(lambda x: datetime.utcfromtimestamp(int(x) >> 32))
+    user_df.loc[user_df['id'].notna(), 'createtime'] = user_df.loc[user_df['id'].notna(), 'id'].apply(
+        lambda x: datetime.utcfromtimestamp(int(x) >> 32))
     user_df['createtime'] = pd.to_datetime(user_df['createtime'], utc=True)
-    user_df[['followingCount', 'followerCount', 'videoCount', 'diggCount']] = user_df[['followingCount', 'followerCount', 'videoCount', 'diggCount']].astype('Int64')
+    user_df[['followingCount', 'followerCount', 'videoCount', 'diggCount']] = user_df[
+        ['followingCount', 'followerCount', 'videoCount', 'diggCount']].astype('Int64')
     # excluding because it messes up the csv and its not accessible anyway
     # user_df['avatarThumb'] = user_df['avatarThumb'].combine_first(user_df['avatar_thumb'])
     if 'avatar_thumb' in user_df.columns:
         user_df = user_df.drop(columns=['avatar_thumb'])
-    user_df = user_df[['id', 'uniqueId', 'nickname', 'signature', 'verified', 'followingCount', 'followerCount', 'videoCount', 'diggCount', 'createtime']]
+    user_df = user_df[
+        ['id', 'uniqueId', 'nickname', 'signature', 'verified', 'followingCount', 'followerCount', 'videoCount',
+         'diggCount', 'createtime']]
     user_df = user_df.rename(columns={
         'uniqueId': 'unique_id',
-        'followingCount': 'num_following', 
-        'followerCount': 'num_followers', 
-        'videoCount': 'num_videos', 
+        'followingCount': 'num_following',
+        'followerCount': 'num_followers',
+        'videoCount': 'num_videos',
         'diggCount': 'num_likes'
     })
-    
+
     return user_df

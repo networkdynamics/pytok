@@ -3,6 +3,11 @@
 
 This is a Playwright based version of David Teacher's unofficial api wrapper for TikTok.com in python. It re-implements a currently limited set of the features of the original library, with a shifted focus on using browser automation to allow manual captcha solves with a hopefully minor trade-off in performance.
 
+## Installation
+
+```bash
+pip install git+https://github.com/networkdynamics/pytok.git@master
+```
 
 ## Quick Start Guide
 

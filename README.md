@@ -6,7 +6,7 @@ This is a Playwright based version of David Teacher's unofficial api wrapper for
 ## Installation
 
 ```bash
-pip install git+https://github.com/networkdynamics/pytok.git@main
+pip install git+https://github.com/networkdynamics/pytok.git@master
 ```
 
 ## Quick Start Guide

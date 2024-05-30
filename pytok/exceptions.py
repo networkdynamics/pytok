@@ -36,3 +36,6 @@ class ApiFailedException(TikTokException):
 
 class FewerVideosThanExpectedException(TikTokException):
     """TikTok is returning fewer videos for this user than their metadata led us to expect"""
+
+class AccountPrivateException(TikTokException):
+    """This TikTok account is private and cannot be scraped"""

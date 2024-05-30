@@ -101,23 +101,23 @@ class User(Base):
                 if response.status >= 300:
                     raise NotAvailableException("Content is not available")
 
-        try:
-            await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]',
-                                                                  "Couldn't find this account",
-                                                                  no_content_text="No content")
-            await self.check_for_unavailable_or_captcha('User has no content')  # check for captcha
-            await page.wait_for_load_state('networkidle')
-            await self.check_for_unavailable_or_captcha('User has no content')  # check for login
-            await self.check_for_unavailable("Couldn't find this account")
-        except Exception as ex:
-            if isinstance(ex, playwright.async_api.TimeoutError):
-                raise
-            elif isinstance(ex, NotAvailableException):
-                raise
-            elif isinstance(ex, EmptyResponseException):
-                raise
-            else:
-                raise TikTokException(f"Failed to navigate to user page: {ex}")
+        # try:
+        await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]',
+                                                              "Couldn't find this account",
+                                                              no_content_text="No content")
+        await self.check_for_unavailable_or_captcha('User has no content')  # check for captcha
+        await page.wait_for_load_state('networkidle')
+        await self.check_for_unavailable_or_captcha('User has no content')  # check for login
+        await self.check_for_unavailable("Couldn't find this account")
+        # except Exception as ex:
+        #     if isinstance(ex, playwright.async_api.TimeoutError):
+        #         raise
+        #     elif isinstance(ex, NotAvailableException):
+        #         raise
+        #     elif isinstance(ex, EmptyResponseException):
+        #         raise
+        #     else:
+        #         raise TikTokException(f"Failed to navigate to user page: {ex}")
 
         data_responses = self.get_responses('api/user/detail')
 

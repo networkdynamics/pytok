@@ -104,11 +104,10 @@ class CaptchaSolver:
 
         if resp.status_code != 200:
             raise Exception("Captcha was not solved")
-        if resp.json()['code'] == 500:
+        else:
             # status code was 200, but perhaps the response was to say that the CAPTCHA failed.
-            raise Exception(f"CAPTCHA server responded 200 but said: {resp.json()['message']}")
-
-
+            if resp.json()['code'] == 500:
+                raise Exception(f"CAPTCHA server responded 200 but said: {resp.json()['message']}")
 
         return resp.json()
 

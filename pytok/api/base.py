@@ -58,19 +58,19 @@ class Base:
             no_content_element = page.get_by_text(no_content_text, exact=True)
         else:
             no_content_element = None
-        try:
-            expected_elements = content_element.or_(captcha_element).or_(unavailable_element)
-            if no_content_text:
-                expected_elements = expected_elements.or_(no_content_element)
-            try:
-                await expect(content_element.or_(captcha_element).or_(unavailable_element)).to_be_visible(
-                    timeout=TOK_DELAY * 1000)
-            except Exception as e:
-                print(
-                    e)  # TODO: playwright may throw a strict mode violation error here; handle it at top layer
-                raise
-        except TimeoutError as e:
-            raise exceptions.TimeoutException(str(e))
+        # try:
+        expected_elements = content_element.or_(captcha_element).or_(unavailable_element)
+        if no_content_text:
+            expected_elements = expected_elements.or_(no_content_element)
+        # try:
+        await expect(content_element.or_(captcha_element).or_(unavailable_element)).to_be_visible(
+            timeout=TOK_DELAY * 1000)
+        #     except Exception as e:
+        #         print(
+        #             e)  # TODO: playwright may throw a strict mode violation error here; handle it at top layer
+        #         raise
+        # except TimeoutError as e:
+        #     raise exceptions.TimeoutException(str(e))
 
         if await captcha_element.is_visible():
             await self.solve_captcha()
@@ -144,6 +144,7 @@ class Base:
             raise exceptions.TimeoutException(str(e))
 
     def get_requests(self, api_path):
+        """searches a list of all requests thus far issued by the Playwright browser instance"""
         return [request for request in self.parent._requests if api_path in request.url]
 
     def get_responses(self, api_path):

@@ -37,10 +37,10 @@ class PyTok:
     logger = logging.getLogger(LOGGER_NAME)
 
     def __init__(
-        self,
-        logging_level: int = logging.WARNING,
-        request_delay: Optional[int] = 0,
-        headless: Optional[bool] = False,
+            self,
+            logging_level: int = logging.WARNING,
+            request_delay: Optional[int] = 0,
+            headless: Optional[bool] = False,
     ):
         """The PyTok class. Used to interact with TikTok. This is a singleton
             class to prevent issues from arising with playwright
@@ -102,6 +102,7 @@ class PyTok:
                 response._body = await response.body()
             except Exception:
                 pass
+
         self._page.on("response", save_responses_and_body)
 
         self._user_agent = await self._page.evaluate("() => navigator.userAgent")
@@ -112,7 +113,6 @@ class PyTok:
         if self._request_delay is not None:
             await self._page.wait_for_timeout(self._request_delay * 1000)
 
-    
     def __del__(self):
         """A basic cleanup method, called automatically from the code"""
         if not self._is_context_manager:

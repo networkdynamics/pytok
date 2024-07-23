@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Steel"
+  given-names: "Ben"
+  orcid: "https://orcid.org/0009-0006-3845-1394"
+- family-names: "Abrahams"
+  given-names: "Alexei"
+  orcid: "https://orcid.org/0000-0002-6547-072X"
+title: "PyTok"
+version: 0.1.0
+doi: 10.5281/zenodo.12802714
+date-released: 2024-07-23
+url: "https://github.com/networkdynamics/pytok"

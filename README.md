@@ -1,4 +1,6 @@
 
+[![DOI](https://zenodo.org/badge/555492190.svg)](https://zenodo.org/doi/10.5281/zenodo.12802713)
+
 # pytok
 
 This is a Playwright based version of David Teacher's unofficial api wrapper for TikTok.com in python. It re-implements a currently limited set of the features of the original library, with a shifted focus on using browser automation to allow manual captcha solves with a hopefully minor trade-off in performance.
@@ -37,6 +39,25 @@ if __name__ == "__main__":
 Please note pulling data from TikTok takes a while! We recommend leaving the scripts running on a server for a while for them to finish downloading everything. Feel free to play around with the delay constants to either speed up the process or avoid TikTok rate limiting, like so: `PyTok(request_delay=10)`
 
 Please do not hesitate to make an issue in this repo to get our help with this!
+
+## Citation
+
+If you use this library in your research, please cite it using the following BibTeX entry:
+
+```bibtex
+@software{ben_steel_2024_12802714,
+  author       = {Ben Steel and
+                  Alexei Abrahams},
+  title        = {{networkdynamics/pytok: Initial working version of 
+                   library}},
+  month        = jul,
+  year         = 2024,
+  publisher    = {Zenodo},
+  version      = {v0.1.0},
+  doi          = {10.5281/zenodo.12802714},
+  url          = {https://doi.org/10.5281/zenodo.12802714}
+}
+```
 
 ## Format and Schema
 

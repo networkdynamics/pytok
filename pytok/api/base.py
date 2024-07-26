@@ -215,9 +215,6 @@ class Base:
             await signin_element.click()
 
     async def solve_captcha(self):
-        if self.parent._manual_captcha:
-            input("Please solve the CAPTCHA and press Enter to continue...")
-            return
         """
         this method not only calculates the CAPTCHA solution but also POSTs it to TikTok's server.
         """

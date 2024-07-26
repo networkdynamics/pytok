@@ -1,6 +1,8 @@
 import asyncio
 import random
 
+import numpy as np
+
 from playwright.async_api import expect
 
 from .. import exceptions, captcha_solver
@@ -45,6 +47,7 @@ class Base:
         captcha_visible = await captcha_element.is_visible()
         if captcha_visible:
             await self.solve_captcha()
+            asyncio.sleep(1)
             await expect(content_element).to_be_visible(timeout=TOK_DELAY * 1000)
 
         return content_element
@@ -74,7 +77,9 @@ class Base:
 
         if await captcha_element.is_visible():
             await self.solve_captcha()
-            await page.reload()  # must reload the target handle's home page to clear the CAPTCHA pop-up window
+            await asyncio.sleep(1)
+            if await captcha_element.is_visible():
+                raise exceptions.CaptchaException("Captcha is still visible after solving")
             expected_elements = content_element.or_(unavailable_element)
             if no_content_text:
                 expected_elements = expected_elements.or_(no_content_element)
@@ -101,8 +106,6 @@ class Base:
                 try:
                     await self.solve_captcha()
                     await asyncio.sleep(1)
-                    await page.reload()
-                    await page.wait_for_load_state('networkidle', timeout=60 * 1000)
                     captcha_is_visible = await captcha_element.is_visible()
                     if captcha_is_visible:
                         captcha_exceptions.append(exceptions.CaptchaException("Captcha is still visible after solving"))
@@ -192,6 +195,7 @@ class Base:
             captcha_element = get_captcha_element(page)
             if await captcha_element.is_visible():
                 await self.solve_captcha()
+                asyncio.sleep(1)
             else:
                 raise exceptions.TimeoutException(str(e))
 
@@ -201,6 +205,7 @@ class Base:
         captcha_visible = await captcha_element.is_visible()
         if captcha_visible:
             await self.solve_captcha()
+            asyncio.sleep(1)
 
     async def check_and_close_signin(self):
         page = self.parent._page
@@ -210,6 +215,9 @@ class Base:
             await signin_element.click()
 
     async def solve_captcha(self):
+        if self.parent._manual_captcha:
+            input("Please solve the CAPTCHA and press Enter to continue...")
+            return
         """
         this method not only calculates the CAPTCHA solution but also POSTs it to TikTok's server.
         """
@@ -258,5 +266,25 @@ class Base:
         -now a local CAPTCHA solver will decide how to place the piece in the puzzle
         -finally, the solution will be POSTed to TikTok, and the server's response will be obtained
         """
-        response_after_posting_captcha_solution_to_tiktok_api = await captcha_solver.CaptchaSolver(captcha_response, puzzle,
-                                                                                              piece).solve_captcha()
+        solve = await captcha_solver.CaptchaSolver(captcha_response, puzzle, piece).solve_captcha()
+
+        page = self.parent._page
+        drag = page.locator('css=div.secsdk-captcha-drag-icon').first
+        bar = page.locator('css=div.captcha_verify_slide--slidebar').first
+        
+        drag_bounding_box = await drag.bounding_box()
+        bar_bounding_box = await bar.bounding_box()
+
+        drag_centre = {
+            'x': drag_bounding_box['x'] + drag_bounding_box['width'] / 2,
+            'y': drag_bounding_box['y'] + drag_bounding_box['height'] / 2
+        }
+
+        bar_effective_width = bar_bounding_box['width'] - drag_bounding_box['width']
+        distance_to_drag = bar_effective_width * solve['maxloc']
+
+        await page.mouse.move(drag_centre['x'], drag_centre['y'])
+        await page.mouse.down()
+        for x in np.linspace(drag_centre['x'], drag_centre['x'] + distance_to_drag, 20):
+            await page.mouse.move(x, drag_centre['y'])
+        await page.mouse.up()

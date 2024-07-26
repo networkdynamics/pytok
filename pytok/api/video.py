@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, ClassVar, Optional
 
 import brotli
 import requests
-from playwright._impl._errors import TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 if TYPE_CHECKING:
     from ..tiktok import PyTok
@@ -205,6 +205,15 @@ class Video(Base):
                 return body
 
         # send the request ourselves
+        bytes_headers = {
+            'sec-ch-ua': '"HeadlessChrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"', 
+            'referer': 'https://www.tiktok.com/', 
+            'accept-encoding': 'identity;q=1, *;q=0', 
+            'sec-ch-ua-mobile': '?0', 
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.6312.4 Safari/537.36', 
+            'range': 'bytes=0-', 
+            'sec-ch-ua-platform': '"Windows"'
+        }
         cookies = await self.parent._context.cookies()
         cookies = {cookie['name']: cookie['value'] for cookie in cookies}
         r = requests.get(bytes_url, headers=bytes_headers, cookies=cookies)

@@ -106,7 +106,7 @@ class CaptchaSolver:
             raise Exception("Captcha was not solved")
         else:
             # status code was 200, but perhaps the response was to say that the CAPTCHA failed.
-            if resp.json()['code'] == 500:
+            if resp.json()['code'] >= 500:
                 raise Exception(f"CAPTCHA server responded 200 but said: {resp.json()['message']}")
 
         return resp.json()
@@ -130,8 +130,7 @@ class CaptchaSolver:
             solve['tip'] = tip_y
         elif captcha_challenge["mode"] == "whirl":
             solve['tip'] = 0
-
-        return self._post_captcha(solve)
+        return solve
 
 
 class PuzzleSolver:

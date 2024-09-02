@@ -4,9 +4,10 @@ import re
 import time
 from typing import Optional
 
-import playwright
+from browserforge.injectors.playwright import AsyncNewContext
+from browserforge.headers import Browser as ForgeBrowser
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
+from undetected_playwright import Malenia
 
 from .api.sound import Sound
 from .api.user import User
@@ -41,6 +42,9 @@ class PyTok:
             logging_level: int = logging.WARNING,
             request_delay: Optional[int] = 0,
             headless: Optional[bool] = False,
+            browser: Optional[str] = "chromium",
+            manual_captcha_solves: Optional[bool] = False,
+            log_captcha_solves: Optional[bool] = False,
     ):
         """The PyTok class. Used to interact with TikTok. This is a singleton
             class to prevent issues from arising with playwright
@@ -61,6 +65,9 @@ class PyTok:
 
         self._headless = headless
         self._request_delay = request_delay
+        self._browser = browser
+        self._manual_captcha_solves = manual_captcha_solves
+        self._log_captcha_solves = log_captcha_solves
 
         self.logger.setLevel(logging_level)
 
@@ -85,11 +92,23 @@ class PyTok:
 
     async def __aenter__(self):
         self._playwright = await async_playwright().start()
+        fingerprint_options = {}
+        if self._browser == "firefox":
+            self._browser = await self._playwright.firefox.launch(headless=self._headless)
+            fingerprint_options['browser'] = [ForgeBrowser("firefox")]
+        elif self._browser == "chromium":
+            self._browser = await self._playwright.chromium.launch(headless=self._headless)
+            fingerprint_options['browser'] = 'chrome'
+        else:
+            raise Exception("Browser not supported")
+        self._context = await AsyncNewContext(self._browser, fingerprint_options=fingerprint_options)
         device_config = self._playwright.devices['Desktop Chrome']
-        self._browser = await self._playwright.chromium.launch(headless=self._headless)
         self._context = await self._browser.new_context(**device_config)
+        await Malenia.apply_stealth(self._context)
         self._page = await self._context.new_page()
-        await stealth_async(self._page)
+
+        # move mouse to 0, 0 to have known mouse start position
+        await self._page.mouse.move(0, 0)
 
         self._requests = []
         self._responses = []

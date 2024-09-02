@@ -7,6 +7,9 @@ from urllib.parse import urlencode, urlparse
 
 import playwright.async_api
 import requests
+from TikTokApi import TikTokApi
+from TikTokApi.tiktok import TikTokPlaywrightSession
+import TikTokApi.exceptions as tiktokapi_exceptions
 
 from ..exceptions import *
 from ..helpers import extract_tag_contents, edit_url
@@ -61,6 +64,8 @@ class User(Base):
         if data is not None:
             self.as_dict = data
             self.__extract_from_data()
+        else:
+            self.as_dict = {}
 
     def info(self, **kwargs):
         """
@@ -90,59 +95,61 @@ class User(Base):
                 "You must provide the username when creating this class to use this method."
             )
 
-        page = self.parent._page
+        url = f"https://www.tiktok.com/@{self.username}?lang=en"
 
-        url = f"https://www.tiktok.com/@{self.username}"
-        if page.url != url:
-            async with page.expect_request(url) as event:
-                await page.goto(url, timeout=60 * 1000)
-                request = await event.value
-                response = await request.response()
-                if response.status >= 300:
-                    raise NotAvailableException("Content is not available")
+        try:
+            page = self.parent._page
+            
+            if page.url != url:
+                async with page.expect_request(url) as event:
+                    await page.goto(url, timeout=60 * 1000)
+                    request = await event.value
+                    response = await request.response()
+                    if response.status >= 300:
+                        raise NotAvailableException("Content is not available")
 
-        # try:
-        await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]',
-                                                              "Couldn't find this account",
-                                                              no_content_text="No content")
-        await self.check_for_unavailable_or_captcha('User has no content')  # check for captcha
-        await page.wait_for_load_state('networkidle')
-        await self.check_for_unavailable_or_captcha('User has no content')  # check for login
-        await self.check_for_unavailable("Couldn't find this account")
-        # except Exception as ex:
-        #     if isinstance(ex, playwright.async_api.TimeoutError):
-        #         raise
-        #     elif isinstance(ex, NotAvailableException):
-        #         raise
-        #     elif isinstance(ex, EmptyResponseException):
-        #         raise
-        #     else:
-        #         raise TikTokException(f"Failed to navigate to user page: {ex}")
+            # try:
+            await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]',
+                                                                "Couldn't find this account",
+                                                                no_content_text="No content")
+            await self.check_for_unavailable_or_captcha('User has no content')  # check for captcha
+            await page.wait_for_load_state('networkidle')
+            await self.check_for_unavailable_or_captcha('User has no content')  # check for login
+            await self.check_for_unavailable("Couldn't find this account")
 
-        data_responses = self.get_responses('api/user/detail')
+            data_responses = self.get_responses('api/user/detail')
 
-        if len(data_responses) > 0:
-            data_response = data_responses[-1]
-            data = await data_response.json()
-            user = data["userInfo"]
-        else:
-            # get initial html data
-            html_body = await page.content()
-            tag_contents = extract_tag_contents(html_body)
-            data = json.loads(tag_contents)
-
-            if 'UserModule' in data:
-                user = data["UserModule"]["users"][self.username] | data["UserModule"]["stats"][self.username]
-            elif '__DEFAULT_SCOPE__' in data:
-                user_detail = data['__DEFAULT_SCOPE__']['webapp.user-detail']
-                if user_detail['statusCode'] != 0:
-                    raise InvalidJSONException("Failed to find user data in HTML")
-                user_info = user_detail['userInfo']
-                user = user_info['user'] | user_info['stats']
+            if len(data_responses) > 0:
+                data_response = data_responses[-1]
+                data = await data_response.json()
+                user_info = data["userInfo"]
+                user = user_info["user"] | user_info["stats"]
+                self.as_dict = user
+                return user
             else:
+                # get initial html data
+                html_body = await page.content()
+        except Exception as ex:
+            # try just getting html body via requests
+            print(f"Failed to get user info with error: {ex}, trying requests")
+            html_body = requests.get(url).text
+            
+        tag_contents = extract_tag_contents(html_body)
+        self.initial_json = json.loads(tag_contents)
+
+        if 'UserModule' in self.initial_json:
+            user = self.initial_json["UserModule"]["users"][self.username] | self.initial_json["UserModule"]["stats"][self.username]
+        elif '__DEFAULT_SCOPE__' in self.initial_json:
+            user_detail = self.initial_json['__DEFAULT_SCOPE__']['webapp.user-detail']
+            if user_detail['statusCode'] != 0:
                 raise InvalidJSONException("Failed to find user data in HTML")
+            user_info = user_detail['userInfo']
+            user = user_info['user'] | user_info['stats']
+        else:
+            raise InvalidJSONException("Failed to find user data in HTML")
 
         self.as_dict = user
+        self.__extract_from_data()
         return user
 
     async def videos(self, get_bytes=False, count=None, batch_size=100, **kwargs) -> Iterator[Video]:
@@ -162,8 +169,16 @@ class User(Base):
         """
         if self.as_dict and self.as_dict['videoCount'] == 0:
             return
+        
         try:
-            async for video in self._get_videos_api(count, get_bytes, **kwargs):
+            videos, finished, cursor = await self._get_initial_videos(count, get_bytes)
+            for video in videos:
+                yield video
+
+            if finished or count and len(videos) >= count:
+                return
+
+            async for video in self._get_videos_api(count, cursor, get_bytes, **kwargs):
                 yield video
         except ApiFailedException:
             async for video in self._get_videos_scraping(count, get_bytes):
@@ -171,58 +186,48 @@ class User(Base):
         except Exception as ex:
             raise
 
-    async def _get_videos_api(self, count, get_bytes, **kwargs) -> Iterator[Video]:
+    async def _get_videos_api(self, count, cursor, get_bytes, **kwargs) -> Iterator[Video]:
+        # requesting videos via the api in the context of the browser session makes tiktok kill the session
+        # using requests instead
         amount_yielded = 0
-        cursor = 0
-        final_cursor = 9999999999999999999999999999999
-
-        all_scraping = True
-        if all_scraping or 'videos' not in self.parent.request_cache:
-            all_videos, finished, final_cursor = await self._get_api_videos_and_req(count)
-
-            amount_yielded += len(all_videos)
-            for video in all_videos:
-                yield self.parent.video(data=video)
-
-            if finished:
-                return
 
         data_request = self.parent.request_cache['videos']
 
-        video_ids = set(v['id'] for v in all_videos)
+        all_cookies = await self.parent._context.cookies()
+        verify_cookies = [cookie for cookie in all_cookies if cookie['name'] == 's_v_web_id']
+        if not verify_cookies:
+            raise ApiFailedException("Failed to get videos from API without verify cookies")
+        verify_fp = verify_cookies[0]['value']
 
-        try:
-            if count:
-                count = min(count, self.as_dict['stats']['videoCount'])
-            else:
-                count = self.as_dict['stats']['videoCount']
-            next_url = edit_url(data_request.url, {'cursor': final_cursor})
+        while (count is None or amount_yielded < count):
+            next_url = edit_url(
+                data_request.url, 
+                {
+                    'cursor': cursor, 
+                    'id': self.user_id, 
+                    'secUid': self.sec_uid,
+                    'needPinnedItemIds': True,
+                    'post_item_list_request_type': 0,
+                    'verifyFp': verify_fp
+                }
+            )
+            headers = {
+                'accept': '*/*',
+                'accept-encoding': 'gzip, deflate, br, zstd',
+                'accept-language': 'en-GB,en;q=0.9',
+                'priority': 'u=1, i',
+                'referer': f'https://www.tiktok.com/@{self.username}?lang=en',
+                'sec-ch-ua': '"Not;A=Brand";v="24", "Chromium";v="128"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+                'sec-fetch-dest': 'empty',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-site': 'same-origin',
+                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.18 Safari/537.36'
+            }
             cookies = await self.parent._context.cookies()
             cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-            r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
-
-            if r.status_code != 200:
-                raise ApiFailedException(f"Failed to get videos from API with status code {r.status_code}")
-
-            if not r.content:
-                raise ApiFailedException(f"Failed to get videos from API with empty response")
-
-            res = r.json()
-            videos = res.get('itemList', [])
-            for video in videos:
-                if video['id'] not in video_ids:
-                    yield self.parent.video(data=video)
-
-            return
-        except Exception as ex:
-            print("Failed to get videos all at once, trying in batches...")
-            pass
-
-        while (count is None or amount_yielded < count) and cursor < final_cursor:
-            next_url = edit_url(data_request.url, {'cursor': cursor, 'id': self.user_id, 'secUid': self.sec_uid})
-            cookies = await self.parent._context.cookies()
-            cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-            r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
+            r = requests.get(next_url, headers=headers, cookies=cookies)
 
             if r.status_code != 200:
                 raise ApiFailedException(f"Failed to get videos from API with status code {r.status_code}")
@@ -232,8 +237,7 @@ class User(Base):
             res = r.json()
 
             if res.get('type') == 'verify':
-                # force new request for cache
-                self._get_api_videos_and_req(count - amount_yielded)
+                raise ApiFailedException("TikTok API is asking for verification")
 
             videos = res.get('itemList', [])
             cursor = int(res['cursor'])
@@ -251,37 +255,13 @@ class User(Base):
                 return
 
             self.parent.request_delay()
-
-    async def _get_api_videos_and_req(self, count):
-        all_videos = []
-        finished = False
-        final_cursor = 9999999999999999999999999999999
-
-        video_responses = self.get_responses('api/post/item_list')
-        for video_response in video_responses:
-            try:
-                video_data = await video_response.json()
-                if video_data.get('itemList'):
-                    videos = video_data['itemList']
-                    all_videos += videos
-                    finished = video_data.get('hasMore') is False
-                    final_cursor = int(video_data['cursor'])
-                    break
-            except Exception as ex:
-                pass
-
-        if len(video_responses) == 0:
-            raise ApiFailedException("Failed to get videos from API")
-
-        self.parent.request_cache['videos'] = video_responses[-1]
-
-        return all_videos, finished, final_cursor
+        
 
     async def _get_videos_scraping(self, count, get_bytes):
         page = self.parent._page
 
         url = f"https://www.tiktok.com/@{self.username}"
-        if page.url != url:
+        if url not in page.url:
             await page.goto(url)
             self.check_initial_call(url)
         await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]', "This account is private")
@@ -362,55 +342,36 @@ class User(Base):
 
             await self.parent.request_delay()
 
-    async def _get_videos_scroll(self, count, get_bytes):
+    async def _get_initial_videos(self, count, get_bytes):
+        all_videos = []
+        finished = False
 
-        # get initial html data
-        html_req_path = f"@{self.username}"
-        initial_html_requests = self.get_requests(html_req_path)
-        for initial_html_request in initial_html_requests:
-            initial_html_response = await initial_html_request.response()
-            html_body = await self.get_response_body(initial_html_response)
-
-            amount_yielded = 0
-
+        video_responses = self.get_responses('api/post/item_list')
+        video_responses = [res for res in video_responses if f"secUid={self.sec_uid}" in res.url]
+        for video_response in video_responses:
             try:
-                tag_contents = extract_tag_contents(html_body)
-                res = json.loads(tag_contents)
-
-                if 'ItemModule' in res:
-                    videos = list(res['ItemModule'].values())
-
-                    video_users = res["UserModule"]["users"]
-
-                    for video in videos:
-                        video['author'] = video_users[video['author']]
-
-                    if get_bytes:
-                        await self._load_each_video(videos)
-
-                    amount_yielded += len(videos)
+                video_data = await video_response.json()
+                if video_data.get('itemList'):
+                    videos = video_data['itemList']
                     video_objs = [self.parent.video(data=video) for video in videos]
-
-                    for video in video_objs:
-                        yield video
-
-                    has_more = res['ItemList']['user-post']['hasMore']
-                    if not has_more:
-                        User.parent.logger.info(
-                            "TikTok isn't sending more TikToks beyond this point."
-                        )
-                        return
-
-                    if count and amount_yielded >= count:
-                        return
+                    all_videos += video_objs
+                finished = not video_data.get('hasMore', False)
+                cursor = video_data.get('cursor', 0)
             except Exception as ex:
-                continue
-            else:
-                break
+                pass
+
+        if len(video_responses) == 0:
+            raise ApiFailedException("Failed to get videos from API")
+
+        self.parent.request_cache['videos'] = video_responses[-1]
+        return all_videos, finished, cursor
+
+    async def _get_videos_scroll(self, count, get_bytes):
 
         data_request_path = "api/post/item_list"
         data_urls = []
         tries = 1
+        amount_yielded = 0
         MAX_TRIES = 10
 
         valid_data_request = False
@@ -421,9 +382,10 @@ class User(Base):
                 await self.parent.request_delay()
                 await self.slight_scroll_up()
                 await self.parent.request_delay()
-                await self.scroll_to_bottom()
+                await self.scroll_to_bottom(speed=8)
 
             data_requests = [req for req in self.get_requests(data_request_path) if req.url not in data_urls]
+            data_requests = [res for res in data_requests if f"secUid={self.sec_uid}" in res.url]
 
             if not data_requests:
                 tries += 1
@@ -583,10 +545,3 @@ class User(Base):
     def __str__(self):
         return f"PyTok.user(username='{self.username}', user_id='{self.user_id}', sec_uid='{self.sec_uid}')"
 
-    def __getattr__(self, name):
-        if name in ["as_dict"]:
-            self.as_dict = self.info()
-            self.__extract_from_data()
-            return self.__getattribute__(name)
-
-        raise AttributeError(f"{name} doesn't exist on PyTok.api.User")

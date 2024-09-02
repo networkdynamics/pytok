@@ -3,6 +3,8 @@ playwright
 pyvirtualdisplay
 opencv-python
 brotli
-playwright-stealth
 pandas
 tqdm
+undetected_playwright
+browserforge
+pyclick

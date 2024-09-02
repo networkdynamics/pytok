@@ -1,7 +1,8 @@
 import asyncio
+from datetime import datetime
 import random
 
-import numpy as np
+from pyclick import HumanCurve
 
 from playwright.async_api import expect
 
@@ -205,7 +206,7 @@ class Base:
         captcha_visible = await captcha_element.is_visible()
         if captcha_visible:
             await self.solve_captcha()
-            asyncio.sleep(1)
+            await asyncio.sleep(1)
 
     async def check_and_close_signin(self):
         page = self.parent._page
@@ -215,9 +216,19 @@ class Base:
             await signin_element.click()
 
     async def solve_captcha(self):
+        if self.parent._manual_captcha_solves:
+            input("Press Enter to continue after solving CAPTCHA:")
+            await asyncio.sleep(1)
+            if self.parent._log_captcha_solves:
+                request = self.get_requests('/captcha/verify')[0]
+                body = request.post_data
+                with open(f"manual_captcha_{datetime.now().isoformat()}.json", "w") as f:
+                    f.write(body)
+            return
         """
         this method not only calculates the CAPTCHA solution but also POSTs it to TikTok's server.
         """
+        # get captcha data
         request = self.get_requests('/captcha/get')[0]
         captcha_response = await request.response()
         if captcha_response is not None:
@@ -280,8 +291,34 @@ class Base:
         bar_effective_width = bar_bounding_box['width'] - drag_bounding_box['width']
         distance_to_drag = bar_effective_width * solve['maxloc']
 
-        await page.mouse.move(drag_centre['x'], drag_centre['y'])
+        curve_kwargs = {
+            'knotsCount': 7, 
+            'distortionMean': 14.3, 
+            'distortionStdev': 22.7, 
+            'distortionFrequency': 0.8, 
+            'targetPoints': 500
+        }
+        points = HumanCurve(
+            [0, 0], 
+            [int(drag_centre['x']), int(drag_centre['y'])],
+            **curve_kwargs
+        ).points
+        for point in points:
+            await page.mouse.move(point[0], point[1])
         await page.mouse.down()
-        for x in np.linspace(drag_centre['x'], drag_centre['x'] + distance_to_drag, 20):
-            await page.mouse.move(x, drag_centre['y'])
+        points = HumanCurve(
+            [int(drag_centre['x']), int(drag_centre['y'])], 
+            [int(drag_centre['x'] + distance_to_drag), int(drag_centre['y'])],
+            **curve_kwargs
+        ).points
+        for point in points:
+            await page.mouse.move(point[0], point[1])
         await page.mouse.up()
+
+        if self.parent._log_captcha_solves:
+            await asyncio.sleep(1)
+            request = self.get_requests('/captcha/verify')[0]
+            body = request.post_data
+            with open(f"automated_captcha_{datetime.now().isoformat()}.json", "w") as f:
+                f.write(body)
+

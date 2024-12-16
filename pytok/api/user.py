@@ -97,42 +97,38 @@ class User(Base):
 
         url = f"https://www.tiktok.com/@{self.username}?lang=en"
 
-        try:
-            page = self.parent._page
-            
-            if page.url != url:
-                async with page.expect_request(url) as event:
-                    await page.goto(url, timeout=60 * 1000)
-                    request = await event.value
-                    response = await request.response()
-                    if response.status >= 300:
-                        raise NotAvailableException("Content is not available")
+        page = self.parent._page
+        
+        if page.url != url:
+            async with page.expect_request(url) as event:
+                await page.goto(url, timeout=60 * 1000)
+                request = await event.value
+                response = await request.response()
+                if response.status >= 300:
+                    raise NotAvailableException("Content is not available")
 
-            # try:
-            await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]',
-                                                                "Couldn't find this account",
-                                                                no_content_text="No content")
-            await self.check_for_unavailable_or_captcha('User has no content')  # check for captcha
-            await page.wait_for_load_state('networkidle')
-            await self.check_for_unavailable_or_captcha('User has no content')  # check for login
-            await self.check_for_unavailable("Couldn't find this account")
+        # try:
+        await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]',
+                                                            "Couldn't find this account",
+                                                            no_content_text=["No content", "This account is private"])
+        await self.check_for_unavailable_or_captcha('User has no content')  # check for captcha
+        await page.wait_for_load_state('networkidle')
+        await self.check_for_unavailable_or_captcha('User has no content')  # check for login
+        await self.check_for_unavailable("Couldn't find this account")
 
-            data_responses = self.get_responses('api/user/detail')
+        data_responses = self.get_responses('api/user/detail')
 
-            if len(data_responses) > 0:
-                data_response = data_responses[-1]
-                data = await data_response.json()
-                user_info = data["userInfo"]
-                user = user_info["user"] | user_info["stats"]
-                self.as_dict = user
-                return user
-            else:
-                # get initial html data
-                html_body = await page.content()
-        except Exception as ex:
-            # try just getting html body via requests
-            print(f"Failed to get user info with error: {ex}, trying requests")
-            html_body = requests.get(url).text
+        if len(data_responses) > 0:
+            data_response = data_responses[-1]
+            data = await data_response.json()
+            user_info = data["userInfo"]
+            user = user_info["user"] | user_info["stats"]
+            self.as_dict = user
+            self.__extract_from_data()
+            return user
+        else:
+            # get initial html data
+            html_body = await page.content()
             
         tag_contents = extract_tag_contents(html_body)
         self.initial_json = json.loads(tag_contents)
@@ -377,12 +373,11 @@ class User(Base):
         valid_data_request = False
         cursors = []
         while not valid_data_request:
-            for _ in range(tries):
-                await self.check_and_wait_for_captcha()
-                await self.parent.request_delay()
-                await self.slight_scroll_up()
-                await self.parent.request_delay()
-                await self.scroll_to_bottom(speed=8)
+            await self.check_and_wait_for_captcha()
+            await self.parent.request_delay()
+            await self.slight_scroll_up()
+            await self.parent.request_delay()
+            await self.scroll_to_bottom(speed=8)
 
             data_requests = [req for req in self.get_requests(data_request_path) if req.url not in data_urls]
             data_requests = [res for res in data_requests if f"secUid={self.sec_uid}" in res.url]

@@ -58,23 +58,22 @@ class Base:
         content_element = page.locator(content_tag).first
         captcha_element = get_captcha_element(page)
         unavailable_element = page.get_by_text(unavailable_text, exact=True)
-        if no_content_text:
-            no_content_element = page.get_by_text(no_content_text, exact=True)
-        else:
-            no_content_element = None
+
         # try:
         expected_elements = content_element.or_(captcha_element).or_(unavailable_element)
-        if no_content_text:
-            expected_elements = expected_elements.or_(no_content_element)
-        # try:
-        await expect(content_element.or_(captcha_element).or_(unavailable_element)).to_be_visible(
+
+        def add_no_content_text(expected_es, text):
+            if no_content_text:
+                if isinstance(no_content_text, list):
+                    for text in no_content_text:
+                        expected_es = expected_es.or_(page.get_by_text(text, exact=True))
+                elif isinstance(no_content_text, str):
+                    expected_es = expected_es.or_(page.get_by_text(no_content_text, exact=True))
+            return expected_es
+        expected_elements = add_no_content_text(expected_elements, no_content_text)
+
+        await expect(expected_elements).to_be_visible(
             timeout=TOK_DELAY * 1000)
-        #     except Exception as e:
-        #         print(
-        #             e)  # TODO: playwright may throw a strict mode violation error here; handle it at top layer
-        #         raise
-        # except TimeoutError as e:
-        #     raise exceptions.TimeoutException(str(e))
 
         if await captcha_element.is_visible():
             await self.solve_captcha()
@@ -82,13 +81,23 @@ class Base:
             if await captcha_element.is_visible():
                 raise exceptions.CaptchaException("Captcha is still visible after solving")
             expected_elements = content_element.or_(unavailable_element)
-            if no_content_text:
-                expected_elements = expected_elements.or_(no_content_element)
+            expected_elements = add_no_content_text(expected_elements, no_content_text)
             await expect(expected_elements).to_be_visible(
                 timeout=TOK_DELAY * 1000)  # waits TOK_DELAY seconds and launches new browser instance
 
         if await unavailable_element.is_visible():
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
+        
+        if no_content_text:
+            if isinstance(no_content_text, list):
+                for text in no_content_text:
+                    no_content_element = page.get_by_text(text, exact=True)
+                    if await no_content_element.is_visible():
+                        raise exceptions.NoContentException(f"Content is not available with message: '{text}'")
+            elif isinstance(no_content_text, str):
+                no_content_element = page.get_by_text(no_content_text, exact=True)
+                if await no_content_element.is_visible():
+                    raise exceptions.NoContentException(f"Content is not available with message: '{no_content_text}'")
 
         return content_element
 

@@ -6,7 +6,7 @@ from pytok.tiktok import PyTok
 hashtag_name = 'fyp'
 
 async def main():
-    async with PyTok() as api:
+    async with PyTok(manual_captcha_solves=True) as api:
         hashtag = api.hashtag(name=hashtag_name)
 
         videos = []

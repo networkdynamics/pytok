@@ -114,9 +114,9 @@ class Hashtag(Base):
                 response = await request.response()
                 try:
                     body = await self.get_response_body(response)
+                    res = json.loads(body)
                 except:
                     continue
-                res = json.loads(body)
                 if res.get('type') == 'verify':
                     # this is the captcha denied response
                     continue
@@ -133,8 +133,8 @@ class Hashtag(Base):
                     return
 
             for _ in range(tries):
-                self.slight_scroll_up()
-                self.scroll_to_bottom()
+                await self.slight_scroll_up()
+                await self.scroll_to_bottom()
                 await self.parent.request_delay()
             
                 search_requests = self.get_requests(data_request_path)
@@ -162,7 +162,7 @@ class Hashtag(Base):
             try:
                 res = r.json()
             except json.decoder.JSONDecodeError:
-                continue
+                raise ApiFailedException("Failed to decode JSON from TikTok API response")
 
             cursor = res["cursor"]
             videos = res.get("itemList", [])

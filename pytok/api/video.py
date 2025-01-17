@@ -148,9 +148,11 @@ class Video(Base):
             raise Exception("Failed to get video bytes")
 
     def _get_url(self) -> str:
-        if not self.username or not self.id:
-            raise ValueError("You must provide the username and id to get the url.")
-        return f"https://www.tiktok.com/@{self.username}/video/{self.id}"
+        if self.username is not None:
+            return f"https://www.tiktok.com/@{self.username}/video/{self.id}"
+        else:
+            # will autoresolve to correct username
+            return f"https://www.tiktok.com/@user/video/{self.id}"
 
     async def view(self, **kwargs) -> None:
         """
@@ -172,7 +174,8 @@ class Video(Base):
                     raise exceptions.NotAvailableException("Content is not available")
             # TODO check with something else, sometimes no comments so this breaks
             await page.wait_for_load_state('networkidle', timeout=60 * 1000)
-            await self.check_for_unavailable_or_captcha('Video currently unavailable')
+            # no need to check for captcha, because video data is in the html regardless
+            await self.check_for_unavailable('Video currently unavailable')
         except PlaywrightTimeoutError as e:
             raise exceptions.TimeoutException(str(e))
 

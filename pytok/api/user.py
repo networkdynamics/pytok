@@ -347,6 +347,8 @@ class User(Base):
         video_responses = [res for res in video_responses if f"secUid={self.sec_uid}" in res.url]
         for video_response in video_responses:
             try:
+                if len(video_response._body) == 0:
+                    continue
                 video_data = await video_response.json()
                 if video_data.get('itemList'):
                     videos = video_data['itemList']

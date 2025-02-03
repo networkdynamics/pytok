@@ -342,6 +342,7 @@ class User(Base):
         all_videos = []
         finished = False
 
+        cursor = 0
         video_responses = self.get_responses('api/post/item_list')
         video_responses = [res for res in video_responses if f"secUid={self.sec_uid}" in res.url]
         for video_response in video_responses:

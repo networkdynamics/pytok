@@ -178,6 +178,23 @@ class Video(Base):
             await self.check_for_unavailable('Video currently unavailable')
         except PlaywrightTimeoutError as e:
             raise exceptions.TimeoutException(str(e))
+        
+    async def related_videos(self, count=20) -> list[dict]:
+        """
+        Returns a list of related
+        TikTok Videos to the current Video.
+        
+        """
+
+        data_request_path = "api/related/item_list"
+        related_videos_data = []
+        data_responses = self.get_responses(data_request_path)
+        for res in data_responses:
+            d = await res.json()
+            related_videos_data.extend(d.get('itemList', []))
+            if len(related_videos_data) >= count:
+                break
+        return related_videos_data
 
     async def bytes(self, **kwargs) -> bytes:
         """

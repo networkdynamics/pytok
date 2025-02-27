@@ -185,16 +185,21 @@ class Video(Base):
         TikTok Videos to the current Video.
         
         """
-
+        num_yielded = 0
         data_request_path = "api/related/item_list"
-        related_videos_data = []
         data_responses = self.get_responses(data_request_path)
         for res in data_responses:
+            # parse params from url
+            url_parsed = url_parsers.urlparse(res.url)
+            params = url_parsers.parse_qs(url_parsed.query)
+            if params['itemID'][0] != self.id:
+                continue
             d = await res.json()
-            related_videos_data.extend(d.get('itemList', []))
-            if len(related_videos_data) >= count:
+            for v in d.get('itemList', []):
+                yield v
+                num_yielded += 1
+            if num_yielded >= count:
                 break
-        return related_videos_data
 
     async def bytes(self, **kwargs) -> bytes:
         """

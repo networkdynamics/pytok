@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from .video import Video
 
 from .base import Base
-from ..helpers import edit_url
+from ..helpers import edit_url, extract_tag_contents
 from ..exceptions import *
 
 
@@ -49,14 +49,18 @@ class Hashtag(Base):
         if data is not None:
             self.as_dict = data
             self.__extract_from_data()
+        else:
+            self.as_dict = None
 
-    def info(self, **kwargs) -> dict:
+    async def info(self, **kwargs) -> dict:
         """
         Returns TikTok's dictionary representation of the hashtag object.
         """
-        raise NotImplementedError()
+        if self.as_dict is None:
+            return await self.info_full(**kwargs)
+        return self.as_dict
 
-    def info_full(self, **kwargs) -> dict:
+    async def info_full(self, **kwargs) -> dict:
         """
         Returns all information sent by TikTok related to this hashtag.
 
@@ -65,7 +69,18 @@ class Hashtag(Base):
         hashtag_data = api.hashtag(name='funny').info_full()
         ```
         """
-        raise NotImplementedError()
+        page = self.parent._page
+
+        url = f"https://www.tiktok.com/tag/{self.name}"
+        await page.goto(url)
+
+        await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=challenge-item]', 'Not available')
+        await self.check_and_close_signin()
+
+        content = await page.content()
+        json_s = extract_tag_contents(content)
+        all_d = json.loads(json_s)
+        self.as_dict = all_d['__DEFAULT_SCOPE__']['webapp.app-context']
 
     async def videos(self, count=30, offset=0, **kwargs) -> Iterator[Video]:
         """Returns a dictionary listing TikToks with a specific hashtag.
@@ -80,13 +95,7 @@ class Hashtag(Base):
             # do something
         ```
         """
-        page = self.parent._page
-
-        url = f"https://www.tiktok.com/tag/{self.name}"
-        await page.goto(url)
-
-        await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=challenge-item]', 'Not available')
-        await self.check_and_close_signin()
+        await self.info()
 
         try:
             async for video in self._get_videos_api(count, offset, **kwargs):

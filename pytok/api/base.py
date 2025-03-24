@@ -58,9 +58,10 @@ class Base:
         content_element = page.locator(content_tag).first
         captcha_element = get_captcha_element(page)
         unavailable_element = page.get_by_text(unavailable_text, exact=True)
+        refresh_button = page.get_by_text('Refresh')
 
         # try:
-        expected_elements = content_element.or_(captcha_element).or_(unavailable_element)
+        expected_elements = content_element.or_(captcha_element).or_(unavailable_element).or_(refresh_button)
 
         def add_no_content_text(expected_es, text):
             if no_content_text:
@@ -98,6 +99,11 @@ class Base:
                 no_content_element = page.get_by_text(no_content_text, exact=True)
                 if await no_content_element.is_visible():
                     raise exceptions.NoContentException(f"Content is not available with message: '{no_content_text}'")
+                
+        
+        if await refresh_button.is_visible():
+            await refresh_button.click()
+            await asyncio.sleep(1)
 
         return content_element
 
@@ -147,6 +153,12 @@ class Base:
         unavailable_element = page.get_by_text(unavailable_text, exact=True)
         if await unavailable_element.is_visible():
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
+
+    async def check_for_reload_button(self):
+        page = self.parent._page
+        reload_button = page.get_by_text('Refresh', exact=True)
+        if await reload_button.is_visible():
+            await reload_button.click()
 
     async def wait_for_requests(self, api_path, timeout=TOK_DELAY):
         page = self.parent._page

@@ -194,12 +194,20 @@ class Video(Base):
             params = url_parsers.parse_qs(url_parsed.query)
             if params['itemID'][0] != self.id:
                 continue
+            if len(res._body) == 0:
+                continue
             d = await res.json()
             for v in d.get('itemList', []):
                 yield v
                 num_yielded += 1
             if num_yielded >= count:
                 break
+
+        # get via scroll
+        # solve captcha if necessary
+        if num_yielded == 0:
+            await self.check_and_wait_for_captcha()
+            pass
 
     async def bytes(self, **kwargs) -> bytes:
         """

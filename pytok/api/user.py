@@ -110,7 +110,7 @@ class User(Base):
         # try:
         await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]',
                                                             "Couldn't find this account",
-                                                            no_content_text=["No content", "This account is private"])
+                                                            no_content_text=["No content", "This account is private", "Log in to TikTok"])
         await self.check_for_unavailable_or_captcha('User has no content')  # check for captcha
         await page.wait_for_load_state('networkidle')
         await self.check_for_unavailable_or_captcha('User has no content')  # check for login
@@ -250,7 +250,7 @@ class User(Base):
                 )
                 return
 
-            self.parent.request_delay()
+            await self.parent.request_delay()
         
 
     async def _get_videos_scraping(self, count, get_bytes):

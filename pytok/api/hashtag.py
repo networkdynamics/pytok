@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import urllib.parse
 
 from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
 
@@ -77,10 +78,18 @@ class Hashtag(Base):
         await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=challenge-item]', 'Not available')
         await self.check_and_close_signin()
 
-        content = await page.content()
-        json_s = extract_tag_contents(content)
-        all_d = json.loads(json_s)
-        self.as_dict = all_d['__DEFAULT_SCOPE__']['webapp.app-context']
+        challenge_responses = self.get_responses("api/challenge/detail")
+        challenge_responses = [request for request in challenge_responses if f"challengeName={urllib.parse.quote_plus(self.name)}" in request.url]
+        if len(challenge_responses) == 0:
+            raise ApiFailedException("Failed to get challenge request")
+        else:
+            challenge_response = challenge_responses[0]
+
+        rep_body = await self.get_response_body(challenge_response)
+        rep_d = json.loads(rep_body.decode('utf-8'))
+
+        self.as_dict = rep_d['challengeInfo']
+        return self.as_dict
 
     async def videos(self, count=30, offset=0, **kwargs) -> Iterator[Video]:
         """Returns a dictionary listing TikToks with a specific hashtag.
@@ -117,6 +126,7 @@ class Hashtag(Base):
             await self.parent.request_delay()
 
             search_requests = self.get_requests(data_request_path)
+            search_requests = [response for response in search_requests if f"challengeID={self.as_dict['challenge']['id']}" in response.url]
             search_requests = [request for request in search_requests if request.url not in processed_urls]
             for request in search_requests:
                 processed_urls.append(request.url)
@@ -158,33 +168,33 @@ class Hashtag(Base):
 
     async def _get_videos_api(self, count=30, offset=0, **kwargs):
         responses = self.get_responses("api/challenge/item_list")
-        response = responses[-1]
+        responses = [response for response in responses if f"challengeID={self.as_dict['challenge']['id']}" in response.url]
 
         amount_yielded = 0
         cursor = 0
         while amount_yielded < count:
-            
-            next_url = edit_url(response.url, {"cursor": cursor})
-            cookies = await self.parent._context.cookies()
-            cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-            r = requests.get(next_url, headers=response.headers, cookies=cookies)
-            try:
-                res = r.json()
-            except json.decoder.JSONDecodeError:
-                raise ApiFailedException("Failed to decode JSON from TikTok API response")
+            for response in responses:
+                next_url = edit_url(response.url, {"cursor": cursor})
+                cookies = await self.parent._context.cookies()
+                cookies = {cookie['name']: cookie['value'] for cookie in cookies}
+                r = requests.get(next_url, headers=response.headers, cookies=cookies)
+                try:
+                    res = r.json()
+                except json.decoder.JSONDecodeError:
+                    raise ApiFailedException("Failed to decode JSON from TikTok API response")
 
-            cursor = res["cursor"]
-            videos = res.get("itemList", [])
+                cursor = res["cursor"]
+                videos = res.get("itemList", [])
 
-            amount_yielded += len(videos)
-            for video in videos:
-                yield self.parent.video(data=video)
+                amount_yielded += len(videos)
+                for video in videos:
+                    yield self.parent.video(data=video)
 
-            if not res.get("hasMore", False):
-                self.parent.logger.info(
-                    "TikTok isn't sending more TikToks beyond this point."
-                )
-                return
+                # if not res.get("hasMore", False):
+                #     self.parent.logger.info(
+                #         "TikTok isn't sending more TikToks beyond this point."
+                #     )
+                #     return
 
     def __extract_from_data(self):
         data = self.as_dict

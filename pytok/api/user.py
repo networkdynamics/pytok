@@ -259,7 +259,7 @@ class User(Base):
         url = f"https://www.tiktok.com/@{self.username}"
         if url not in page.url:
             await page.goto(url)
-            self.check_initial_call(url)
+            await self.check_initial_call(url)
         await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]', "This account is private")
 
         video_pull_method = 'scroll'

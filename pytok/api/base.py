@@ -27,10 +27,10 @@ def get_captcha_element(page):
 class Base:
 
     async def check_initial_call(self, url):
-        async with self.wait_for_requests(url) as event:
-            response = await event.value.response()
-            if response.status >= 300:
-                raise exceptions.NotAvailableException("Content is not available")
+        event = await self.wait_for_requests(url)
+        response = await event.value.response()
+        if response.status >= 300:
+            raise exceptions.NotAvailableException("Content is not available")
 
     async def wait_for_content_or_captcha(self, content_tag):
         page = self.parent._page

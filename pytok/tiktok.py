@@ -4,10 +4,7 @@ import re
 import time
 from typing import Optional
 
-from browserforge.injectors.playwright import AsyncNewContext
-from browserforge.headers import Browser as ForgeBrowser
-from playwright.async_api import async_playwright
-from undetected_playwright import Malenia
+from patchright.async_api import async_playwright
 
 from .api.sound import Sound
 from .api.user import User
@@ -95,17 +92,22 @@ class PyTok:
         fingerprint_options = {}
         if self._browser == "firefox":
             self._browser = await self._playwright.firefox.launch(headless=self._headless)
-            fingerprint_options['browser'] = [ForgeBrowser("firefox")]
+            # fingerprint_options['browser'] = [ForgeBrowser("firefox")]
         elif self._browser == "chromium":
-            self._browser = await self._playwright.chromium.launch(headless=self._headless)
-            fingerprint_options['browser'] = 'chrome'
+            self._browser = await self._playwright.chromium.launch(
+                # user_data_dir="...",
+                channel="chrome",
+                headless=False,
+                # no_viewport=True,
+                # do NOT add custom browser headers or user_agent
+            )
+            # fingerprint_options['browser'] = 'chrome'
         else:
             raise Exception("Browser not supported")
-        self._context = await AsyncNewContext(self._browser, fingerprint_options=fingerprint_options)
-        device_config = self._playwright.devices['Desktop Chrome']
-        self._context = await self._browser.new_context(**device_config)
-        await Malenia.apply_stealth(self._context)
-        self._page = await self._context.new_page()
+        # self._context = await AsyncNewContext(self._browser, fingerprint_options=fingerprint_options)
+        # device_config = self._playwright.devices['Desktop Chrome']
+        # self._context = await self._browser.new_context(**device_config)
+        self._page = await self._browser.new_page()
 
         # move mouse to 0, 0 to have known mouse start position
         await self._page.mouse.move(0, 0)

@@ -12,7 +12,9 @@ async def main():
 
         # Bytes of the TikTok video
         video_data = await video.info()
-        related_videos = await video.related_videos()
+        related_videos = []
+        async for related_video in video.related_videos():
+            related_videos.append(related_video)
         video_bytes = await video.bytes()
 
         with open("out.json", "w") as out_file:

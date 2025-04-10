@@ -5,6 +5,5 @@ opencv-python
 brotli
 pandas
 tqdm
-undetected_playwright
-browserforge
+patchright
 pyclick

@@ -257,6 +257,7 @@ def extract_video_features(video):
         video['stats']['shareCount'],
         video['stats']['commentCount'],
         video['stats']['playCount'],
+        video['aigcLabelType'] if 'aigcLabelType' in video else None
     )
     return vid_features
 
@@ -270,7 +271,7 @@ def get_video_df(videos):
     video_df = pd.DataFrame(vids_data, columns=[
         'video_id', 'createtime', 'author_name', 'author_id', 'desc', 'hashtags',
         'share_video_id', 'share_video_user_id', 'share_video_user_name', 'share_type', 'mentions',
-        'digg_count', 'share_count', 'comment_count', 'view_count'
+        'digg_count', 'share_count', 'comment_count', 'view_count', 'ai_gc_label_type'
     ])
 
     return video_df

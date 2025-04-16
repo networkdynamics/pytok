@@ -20,6 +20,15 @@ from .base import Base
 from ..helpers import extract_tag_contents, edit_url, extract_video_id_from_url, extract_user_id_from_url
 from .. import exceptions
 
+class Counter:
+    def __init__(self):
+        self._counter = 0
+
+    def add(self, n):
+        self._counter += n
+
+    def get(self):
+        return self._counter
 
 class Video(Base):
     """
@@ -84,6 +93,8 @@ class Video(Base):
             page = self.parent._page
             if page.url != url:
                 await self.view()
+
+            await self.check_and_resolve_login_popup()
 
             # get initial html data
             initial_html_response = self.get_responses(url)[-1]
@@ -172,42 +183,51 @@ class Video(Base):
                 response = await request.response()
                 if response.status >= 300:
                     raise exceptions.NotAvailableException("Content is not available")
-            # TODO check with something else, sometimes no comments so this breaks
-            await page.wait_for_load_state('networkidle', timeout=60 * 1000)
             # no need to check for captcha, because video data is in the html regardless
-            await self.check_for_unavailable('Video currently unavailable')
+            await self.wait_for_content_or_unavailable('[id="main-content-video_detail"]', 'Video currently unavailable')
         except PlaywrightTimeoutError as e:
             raise exceptions.TimeoutException(str(e))
         
+    async def _related_videos(self, counter, count=20):
+        data_request_path = "api/related/item_list"
+        data_requests = self.get_requests(data_request_path)
+        for req in data_requests:
+            # parse params from url
+            url_parsed = url_parsers.urlparse(req.url)
+            params = url_parsers.parse_qs(url_parsed.query)
+            if params['itemID'][0] != self.id:
+                continue
+            res = await req.response()
+            if res is None:
+                continue
+            body = await res.body()
+            if len(body) == 0:
+                continue
+            d = await res.json()
+            for v in d.get('itemList', []):
+                yield v
+                counter.add(1)
+            if counter.get() >= count:
+                break
+
     async def related_videos(self, count=20) -> list[dict]:
         """
         Returns a list of related
         TikTok Videos to the current Video.
         
         """
-        num_yielded = 0
-        data_request_path = "api/related/item_list"
-        data_responses = self.get_responses(data_request_path)
-        for res in data_responses:
-            # parse params from url
-            url_parsed = url_parsers.urlparse(res.url)
-            params = url_parsers.parse_qs(url_parsed.query)
-            if params['itemID'][0] != self.id:
-                continue
-            if len(res._body) == 0:
-                continue
-            d = await res.json()
-            for v in d.get('itemList', []):
-                yield v
-                num_yielded += 1
-            if num_yielded >= count:
-                break
+        counter = Counter()
+        async for video in self._related_videos(counter, count=count):
+            yield video
 
         # get via scroll
         # solve captcha if necessary
-        if num_yielded == 0:
+        if counter.get() == 0:
             await self.check_and_wait_for_captcha()
-            pass
+            await self.parent._page.reload()
+            await asyncio.sleep(5)
+            async for video in self._related_videos(counter, count=count):
+                yield video
 
     async def bytes(self, **kwargs) -> bytes:
         """

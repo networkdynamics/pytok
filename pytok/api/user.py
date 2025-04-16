@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import json
+
 import asyncio
+import json
 import re
 from urllib.parse import urlencode, urlparse
 
-import playwright.async_api
+from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 import requests
-from TikTokApi import TikTokApi
-from TikTokApi.tiktok import TikTokPlaywrightSession
-import TikTokApi.exceptions as tiktokapi_exceptions
 
 from ..exceptions import *
 from ..helpers import extract_tag_contents, edit_url
@@ -99,22 +97,27 @@ class User(Base):
 
         page = self.parent._page
         
+        self.parent.logger.debug(f"Loading page: {url}")
         if page.url != url:
-            async with page.expect_request(url) as event:
-                await page.goto(url, timeout=60 * 1000)
-                request = await event.value
-                response = await request.response()
-                if response.status >= 300:
-                    raise NotAvailableException("Content is not available")
+            try:
+                async with page.expect_request(url) as event:
+                    await page.goto(url, timeout=60 * 1000)
+                    request = await event.value
+                    response = await request.response()
+                    if response.status >= 300:
+                        raise NotAvailableException("Content is not available")
+            except PlaywrightTimeoutError:
+                raise TimeoutException("Page load timed out")
 
         # try:
-        await self.wait_for_content_or_unavailable_or_captcha('[data-e2e=user-post-item]',
+        await self.wait_for_content_or_unavailable_or_captcha('[data-e2e="user-post-item"]',
                                                             "Couldn't find this account",
-                                                            no_content_text=["No content", "This account is private", "Log in to TikTok"])
-        await self.check_for_unavailable_or_captcha('User has no content')  # check for captcha
-        await page.wait_for_load_state('networkidle')
-        await self.check_for_unavailable_or_captcha('User has no content')  # check for login
-        await self.check_for_unavailable("Couldn't find this account")
+                                                            no_content_text=["No content", "This account is private"])
+        # resolve any remaining issues
+        await asyncio.sleep(0.5)
+        await self.wait_for_content_or_unavailable_or_captcha('[data-e2e="user-post-item"]',
+                                                            "Couldn't find this account",
+                                                            no_content_text=["No content", "This account is private"])
 
         data_responses = self.get_responses('api/user/detail')
 
@@ -373,14 +376,13 @@ class User(Base):
         amount_yielded = 0
         MAX_TRIES = 10
 
-        valid_data_request = False
         cursors = []
-        while not valid_data_request:
+        while tries <= MAX_TRIES:
             await self.check_and_wait_for_captcha()
             await self.parent.request_delay()
             await self.slight_scroll_up()
             await self.parent.request_delay()
-            await self.scroll_to_bottom(speed=8)
+            await self.scroll_down(20000, speed=8)
 
             data_requests = [req for req in self.get_requests(data_request_path) if req.url not in data_urls]
             data_requests = [res for res in data_requests if f"secUid={self.sec_uid}" in res.url]
@@ -393,19 +395,15 @@ class User(Base):
 
             for data_request in data_requests:
                 data_urls.append(data_request.url)
-                data_response = await data_request.response()
                 try:
+                    data_response = await data_request.response()
                     res_body = await self.get_response_body(data_response)
                 except Exception as ex:
                     continue
 
                 if not res_body:
-                    tries += 1
-                    if tries > MAX_TRIES:
-                        raise EmptyResponseException('TikTok backend broke')
                     continue
 
-                valid_data_request = True
                 self.parent.request_cache['videos'] = data_request
 
                 res = json.loads(res_body)

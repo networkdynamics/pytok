@@ -106,8 +106,8 @@ class PyTok:
             raise Exception("Browser not supported")
         # self._context = await AsyncNewContext(self._browser, fingerprint_options=fingerprint_options)
         # device_config = self._playwright.devices['Desktop Chrome']
-        # self._context = await self._browser.new_context(**device_config)
-        self._page = await self._browser.new_page()
+        self._context = await self._browser.new_context()
+        self._page = await self._context.new_page()
 
         # move mouse to 0, 0 to have known mouse start position
         await self._page.mouse.move(0, 0)

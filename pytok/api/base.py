@@ -4,11 +4,11 @@ import random
 
 from pyclick import HumanCurve
 
-from playwright.async_api import expect
+from patchright.async_api import expect, Page
 
 from .. import exceptions, captcha_solver
 
-TOK_DELAY = 30
+TOK_DELAY = 20
 CAPTCHA_DELAY = 999999
 
 
@@ -52,16 +52,15 @@ class Base:
             await expect(content_element).to_be_visible(timeout=TOK_DELAY * 1000)
 
         return content_element
-
-    async def wait_for_content_or_unavailable_or_captcha(self, content_tag, unavailable_text, no_content_text=None):
-        page = self.parent._page
+    
+    async def wait_for_content_or_unavailable(self, content_tag, unavailable_text, no_content_text=None):
+        page: Page = self.parent._page
         content_element = page.locator(content_tag).first
         captcha_element = get_captcha_element(page)
         unavailable_element = page.get_by_text(unavailable_text, exact=True)
-        refresh_button = page.get_by_text('Refresh')
 
         # try:
-        expected_elements = content_element.or_(captcha_element).or_(unavailable_element).or_(refresh_button)
+        expected_elements = content_element.or_(captcha_element).or_(unavailable_element)
 
         def add_no_content_text(expected_es, text):
             if no_content_text:
@@ -73,19 +72,10 @@ class Base:
             return expected_es
         expected_elements = add_no_content_text(expected_elements, no_content_text)
 
-        await expect(expected_elements).to_be_visible(
-            timeout=TOK_DELAY * 1000)
+        await self.check_and_resolve_refresh_button()
+        await self.check_and_resolve_login_popup()
 
-        if await captcha_element.is_visible():
-            await self.solve_captcha()
-            await asyncio.sleep(1)
-            if await captcha_element.is_visible():
-                raise exceptions.CaptchaException("Captcha is still visible after solving")
-            expected_elements = content_element.or_(unavailable_element)
-            expected_elements = add_no_content_text(expected_elements, no_content_text)
-            await expect(expected_elements).to_be_visible(
-                timeout=TOK_DELAY * 1000)  # waits TOK_DELAY seconds and launches new browser instance
-
+        self.parent.logger.debug(f"Checking for '{unavailable_text}'")
         if await unavailable_element.is_visible():
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
         
@@ -95,15 +85,128 @@ class Base:
                     no_content_element = page.get_by_text(text, exact=True)
                     if await no_content_element.is_visible():
                         raise exceptions.NoContentException(f"Content is not available with message: '{text}'")
+                    else:
+                        self.parent.logger.debug(f"Could not find text '{text}'")
             elif isinstance(no_content_text, str):
                 no_content_element = page.get_by_text(no_content_text, exact=True)
                 if await no_content_element.is_visible():
                     raise exceptions.NoContentException(f"Content is not available with message: '{no_content_text}'")
-                
+                else:
+                    self.parent.logger.debug(f"Could not find text '{text}'")
+
+        max_tries = 10
+        tries = 0
+        self.parent.logger.debug("Waiting for main content to become visible")
+        while not (await content_element.is_visible()) and tries < max_tries:
+            await asyncio.sleep(0.5)
+            await self.check_and_resolve_refresh_button()
+            tries += 1
         
+        if tries >= max_tries:
+            # try some other behaviour
+            url = page.url
+            await page.goto("https://www.tiktok.com")
+            await asyncio.sleep(5)
+            await page.goto(url)
+            await asyncio.sleep(5)
+            if not (await content_element.is_visible()):
+                raise exceptions.TimeoutException(f"Content is not available for unknown reason")
+
+        return content_element
+
+    async def check_and_resolve_refresh_button(self):
+        page: Page = self.parent._page
+        refresh_button = page.get_by_text('Refresh')
+        self.parent.logger.debug("Checking for refresh button")
         if await refresh_button.is_visible():
+            self.parent.logger.debug("Refresh button found, clicking")
             await refresh_button.click()
             await asyncio.sleep(1)
+
+    async def check_and_resolve_login_popup(self):
+        page: Page = self.parent._page
+        login_popup = page.get_by_text('Log in to TikTok')
+        self.parent.logger.debug("Checking for login to TikTok pop up")
+        if await login_popup.is_visible():
+            self.parent.logger.debug("Login prompt found, checking for close button")
+            login_close = page.locator('[data-e2e="modal-close-inner-button"]')
+            if await login_close.is_visible():
+                await login_close.click()
+                await asyncio.sleep(1)
+            else:
+                raise exceptions.NotAvailableException(f"Content is not available with message: 'Log in to TikTok'")
+
+
+    async def wait_for_content_or_unavailable_or_captcha(self, content_tag, unavailable_text, no_content_text=None):
+        page: Page = self.parent._page
+        content_element = page.locator(content_tag).first
+        captcha_element = get_captcha_element(page)
+        unavailable_element = page.get_by_text(unavailable_text, exact=True)
+
+        # try:
+        expected_elements = content_element.or_(captcha_element).or_(unavailable_element)
+
+        def add_no_content_text(expected_es, text):
+            if no_content_text:
+                if isinstance(no_content_text, list):
+                    for text in no_content_text:
+                        expected_es = expected_es.or_(page.get_by_text(text, exact=True))
+                elif isinstance(no_content_text, str):
+                    expected_es = expected_es.or_(page.get_by_text(no_content_text, exact=True))
+            return expected_es
+        expected_elements = add_no_content_text(expected_elements, no_content_text)
+
+        await self.check_and_resolve_refresh_button()
+        await self.check_and_resolve_login_popup()
+
+        # await expect(expected_elements).to_be_visible(
+        #     timeout=TOK_DELAY * 1000)
+
+        self.parent.logger.debug("Checking for captcha")
+        if await captcha_element.is_visible():
+            self.parent.logger.debug("Captcha found")
+            await self.solve_captcha()
+            await asyncio.sleep(1)
+            if await captcha_element.is_visible():
+                raise exceptions.CaptchaException("Captcha is still visible after solving")
+            expected_elements = content_element.or_(unavailable_element)
+            expected_elements = add_no_content_text(expected_elements, no_content_text)
+            await expect(expected_elements).to_be_visible(
+                timeout=TOK_DELAY * 1000)  # waits TOK_DELAY seconds and launches new browser instance
+
+        # check after resolving captcha
+        await self.check_and_resolve_refresh_button()
+        await self.check_and_resolve_login_popup()
+
+        self.parent.logger.debug(f"Checking for '{unavailable_text}'")
+        if await unavailable_element.is_visible():
+            raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
+        
+        if no_content_text:
+            if isinstance(no_content_text, list):
+                for text in no_content_text:
+                    no_content_element = page.get_by_text(text, exact=True)
+                    if await no_content_element.is_visible():
+                        raise exceptions.NoContentException(f"Content is not available with message: '{text}'")
+                    else:
+                        self.parent.logger.debug(f"Could not find text '{text}'")
+            elif isinstance(no_content_text, str):
+                no_content_element = page.get_by_text(no_content_text, exact=True)
+                if await no_content_element.is_visible():
+                    raise exceptions.NoContentException(f"Content is not available with message: '{no_content_text}'")
+                else:
+                    self.parent.logger.debug(f"Could not find text '{text}'")
+
+        max_tries = 10
+        tries = 0
+        self.parent.logger.debug("Waiting for main content to become visible")
+        while not (await content_element.is_visible()) and tries < max_tries:
+            await asyncio.sleep(0.5)
+            await self.check_and_resolve_refresh_button()
+            tries += 1
+        
+        if tries >= max_tries:
+            raise exceptions.TimeoutException(f"Content is not available for unknown reason")
 
         return content_element
 
@@ -207,6 +310,23 @@ class Base:
         while current_scroll > desired_scroll:
             current_scroll -= speed + random.randint(-speed, speed)
             await page.evaluate(f"() => window.scrollBy(0, {-speed});")
+
+    async def scroll_down(self, amount, speed=4):
+        page = self.parent._page
+        
+        current_scroll_position = await page.evaluate(
+            "() => document.documentElement.scrollTop || document.body.scrollTop;")
+        desired_position = current_scroll_position + amount
+        while current_scroll_position < desired_position:
+            scroll_amount = speed + random.randint(-speed, speed) * 0.5
+            await page.evaluate(f"() => window.scrollBy(0, {scroll_amount});")
+            new_scroll_position = await page.evaluate(
+            "() => document.documentElement.scrollTop || document.body.scrollTop;")
+            if new_scroll_position > current_scroll_position:
+                current_scroll_position = new_scroll_position
+            else:
+                # we hit the bottom
+                break
 
     async def wait_until_not_skeleton_or_captcha(self, skeleton_tag):
         page = self.parent._page

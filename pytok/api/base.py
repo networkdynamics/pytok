@@ -2,8 +2,6 @@ import asyncio
 from datetime import datetime
 import random
 
-from pyclick import HumanCurve
-
 from patchright.async_api import expect, Page
 
 from .. import exceptions, captcha_solver
@@ -435,6 +433,8 @@ class Base:
 
         bar_effective_width = bar_bounding_box['width'] - drag_bounding_box['width']
         distance_to_drag = bar_effective_width * solve['maxloc']
+
+        from pyclick import HumanCurve
 
         curve_kwargs = {
             'knotsCount': 7, 

@@ -108,8 +108,9 @@ class Base:
             await page.goto("https://www.tiktok.com")
             await asyncio.sleep(5)
             await page.goto(url)
-            await asyncio.sleep(5)
-            if not (await content_element.is_visible()):
+            try:
+                await expect(content_element).to_be_visible(timeout=TOK_DELAY)
+            except TimeoutError as e:
                 raise exceptions.TimeoutException(f"Content is not available for unknown reason")
 
         return content_element
@@ -200,13 +201,16 @@ class Base:
         max_tries = 10
         tries = 0
         self.parent.logger.debug("Waiting for main content to become visible")
-        while not (await content_element.is_visible()) and tries < max_tries:
-            await asyncio.sleep(0.5)
+        content_is_visible = await content_element.is_visible()
+        while not content_is_visible and tries < max_tries:
+            await asyncio.sleep(1)
             await self.check_and_resolve_refresh_button()
             tries += 1
+            content_is_visible = await content_element.is_visible()
         
         if tries >= max_tries:
-            raise exceptions.TimeoutException(f"Content is not available for unknown reason")
+            pass
+            # raise exceptions.TimeoutException(f"Content is not available for unknown reason")
 
         return content_element
 

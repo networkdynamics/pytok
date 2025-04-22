@@ -88,6 +88,9 @@ class Hashtag(Base):
         rep_body = await self.get_response_body(challenge_response)
         rep_d = json.loads(rep_body.decode('utf-8'))
 
+        if 'challengeInfo' not in rep_d:
+            raise ApiFailedException("Failed to get challengeInfo from response")
+
         self.as_dict = rep_d['challengeInfo']
         return self.as_dict
 

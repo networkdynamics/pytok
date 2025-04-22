@@ -133,23 +133,23 @@ class User(Base):
             # get initial html data
             html_body = await page.content()
             
-        tag_contents = extract_tag_contents(html_body)
-        self.initial_json = json.loads(tag_contents)
+            tag_contents = extract_tag_contents(html_body)
+            self.initial_json = json.loads(tag_contents)
 
-        if 'UserModule' in self.initial_json:
-            user = self.initial_json["UserModule"]["users"][self.username] | self.initial_json["UserModule"]["stats"][self.username]
-        elif '__DEFAULT_SCOPE__' in self.initial_json:
-            user_detail = self.initial_json['__DEFAULT_SCOPE__']['webapp.user-detail']
-            if user_detail['statusCode'] != 0:
+            if 'UserModule' in self.initial_json:
+                user = self.initial_json["UserModule"]["users"][self.username] | self.initial_json["UserModule"]["stats"][self.username]
+            elif '__DEFAULT_SCOPE__' in self.initial_json:
+                user_detail = self.initial_json['__DEFAULT_SCOPE__']['webapp.user-detail']
+                if user_detail['statusCode'] != 0:
+                    raise InvalidJSONException("Failed to find user data in HTML")
+                user_info = user_detail['userInfo']
+                user = user_info['user'] | user_info['stats']
+            else:
                 raise InvalidJSONException("Failed to find user data in HTML")
-            user_info = user_detail['userInfo']
-            user = user_info['user'] | user_info['stats']
-        else:
-            raise InvalidJSONException("Failed to find user data in HTML")
 
-        self.as_dict = user
-        self.__extract_from_data()
-        return user
+            self.as_dict = user
+            self.__extract_from_data()
+            return user
 
     async def videos(self, get_bytes=False, count=None, batch_size=100, **kwargs) -> Iterator[Video]:
         """
@@ -382,7 +382,7 @@ class User(Base):
             await self.parent.request_delay()
             await self.slight_scroll_up()
             await self.parent.request_delay()
-            await self.scroll_down(20000, speed=8)
+            await self.scroll_down(30000, speed=12)
 
             data_requests = [req for req in self.get_requests(data_request_path) if req.url not in data_urls]
             data_requests = [res for res in data_requests if f"secUid={self.sec_uid}" in res.url]

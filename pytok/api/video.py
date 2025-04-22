@@ -245,17 +245,13 @@ class Video(Base):
         bytes_url = self.as_dict['video']['playAddr']
         bytes_headers = {}
         play_path = url_parsers.urlparse(bytes_url).path
-        reqs = self.get_requests(play_path)
-        if len(reqs) > 0:
-            for req in reqs:
-                try:
-                    res = await req.response()
-                    body = await res.body()
-                except Exception:
-                    bytes_url = req.url
-                    bytes_headers = req.headers
-                    continue
-                return body
+        resps = self.get_responses(play_path)
+        if len(resps) > 0:
+            for res in resps:
+                if hasattr(res, '_body'):
+                    if len(res._body) > 0:
+                        return res._body
+        # if we don't have the bytes in the response, we need to get it from the server
 
         # send the request ourselves
         bytes_headers = {

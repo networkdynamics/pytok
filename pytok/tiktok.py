@@ -78,9 +78,10 @@ class PyTok:
 
         self.request_cache = {}
 
-        # if self._headless:
-        #     self._display = pyvirtualdisplay.Display()
-        #     self._display.start()
+        if self._headless:
+            from pyvirtualdisplay import Display
+            self._display = Display()
+            self._display.start()
 
         # options = uc.ChromeOptions()
         # options.add_argument('--ignore-ssl-errors=yes')

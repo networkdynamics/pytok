@@ -244,7 +244,7 @@ class Video(Base):
         """
         bytes_url = self.as_dict['video']['playAddr']
         if len(bytes_url) == 0:
-            raise exceptions.NotAvailableException("Video is not available")
+            raise exceptions.NotAvailableException("Post does not have a video")
         play_path = url_parsers.urlparse(bytes_url).path
         resps = self.get_responses(play_path)
         if len(resps) > 0:
@@ -256,7 +256,7 @@ class Video(Base):
 
         # send the request ourselves
         try:
-            return asyncio.wait_for(self._request_bytes(bytes_url), timeout=10)
+            return await asyncio.wait_for(self._request_bytes(bytes_url), timeout=10)
         except TimeoutError:
             raise exceptions.TimeoutException("Failed to get video bytes in time")
 

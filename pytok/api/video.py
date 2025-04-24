@@ -243,7 +243,8 @@ class Video(Base):
         ```
         """
         bytes_url = self.as_dict['video']['playAddr']
-        bytes_headers = {}
+        if len(bytes_url) == 0:
+            raise exceptions.NotAvailableException("Video is not available")
         play_path = url_parsers.urlparse(bytes_url).path
         resps = self.get_responses(play_path)
         if len(resps) > 0:

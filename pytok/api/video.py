@@ -254,6 +254,12 @@ class Video(Base):
         # if we don't have the bytes in the response, we need to get it from the server
 
         # send the request ourselves
+        try:
+            return asyncio.wait_for(self._request_bytes(bytes_url), timeout=10)
+        except TimeoutError:
+            raise exceptions.TimeoutException("Failed to get video bytes in time")
+
+    async def _request_bytes(self, bytes_url):
         bytes_headers = {
             'sec-ch-ua': '"HeadlessChrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"', 
             'referer': 'https://www.tiktok.com/', 

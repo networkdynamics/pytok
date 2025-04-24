@@ -106,10 +106,6 @@ class Base:
             await page.goto("https://www.tiktok.com")
             await asyncio.sleep(5)
             await page.goto(url)
-            try:
-                await expect(content_element).to_be_visible(timeout=TOK_DELAY)
-            except TimeoutError as e:
-                raise exceptions.TimeoutException(f"Content is not available for unknown reason")
 
         return content_element
 

@@ -181,10 +181,12 @@ class Hashtag(Base):
                 cookies = await self.parent._context.cookies()
                 cookies = {cookie['name']: cookie['value'] for cookie in cookies}
                 r = requests.get(next_url, headers=response.headers, cookies=cookies)
+                if len(r.content) == 0:
+                    raise ApiFailedException("Response had no body")
                 try:
                     res = r.json()
                 except json.decoder.JSONDecodeError:
-                    raise ApiFailedException("Failed to decode JSON from TikTok API response")
+                    raise InvalidJSONException
 
                 cursor = res["cursor"]
                 videos = res.get("itemList", [])
@@ -193,11 +195,11 @@ class Hashtag(Base):
                 for video in videos:
                     yield self.parent.video(data=video)
 
-                # if not res.get("hasMore", False):
-                #     self.parent.logger.info(
-                #         "TikTok isn't sending more TikToks beyond this point."
-                #     )
-                #     return
+                if not res.get("hasMore", False):
+                    self.parent.logger.info(
+                        "TikTok isn't sending more TikToks beyond this point."
+                    )
+                    return
 
     def __extract_from_data(self):
         data = self.as_dict

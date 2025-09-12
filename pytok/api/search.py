@@ -80,7 +80,7 @@ class Search(Base):
             subdomain = "www"
             subpath = "user"
         elif obj_type == "item":
-            subdomain = "us"
+            subdomain = "www"
             subpath = "video"
         else:
             raise TypeError("invalid obj_type")
@@ -90,7 +90,11 @@ class Search(Base):
         url = f"https://{subdomain}.tiktok.com/search/{subpath}?q={self.search_term}"
         await page.goto(url)
 
-        await self.wait_for_content_or_captcha('search_video-item')
+        is_visible = await page.locator('[data-e2e="search_video-item"]').is_visible()
+        is_visible2 = await page.locator('[data-e2e="search_video-item-list"]').is_visible()
+        is_visible3 = await page.locator('[id="column-item-video-container-0"]').is_visible()
+
+        await self.wait_for_content_or_captcha('[id="column-item-video-container-0"]')
 
         processed_urls = []
         amount_yielded = 0
@@ -99,14 +103,20 @@ class Search(Base):
         path = f"api/search/{obj_type}"
 
         while amount_yielded < count:
+            await self.check_and_wait_for_captcha()
             await self.parent.request_delay()
+            await self.slight_scroll_up()
+            await self.parent.request_delay()
+            await self.scroll_down(30000, speed=12)
 
             if pull_method == 'browser':
-                search_requests = self.get_requests(path)
-                search_requests = [request for request in search_requests if request.url not in processed_urls]
-                for request in search_requests:
-                    processed_urls.append(request.url)
-                    body = await self.get_response_body(request)
+                search_responses = self.get_responses(path)
+                search_responses = [response for response in search_responses if response.url not in processed_urls]
+                for response in search_responses:
+                    processed_urls.append(response.url)
+                    body = await self.get_response_body(response)
+                    if not body:
+                        continue
                     res = json.loads(body)
                     if res.get('type') == 'verify':
                         # this is the captcha denied response
@@ -129,14 +139,12 @@ class Search(Base):
                         )
                         return
 
-                try:
-                    load_more_button = self.wait_for_content_or_captcha('search-load-more')
-                except TimeoutError:
-                    return
+                # try:
+                #     load_more_button = await self.wait_for_content_or_captcha('search-load-more')
+                # except TimeoutError:
+                #     return
 
-                load_more_button.click()
-
-                self.wait_until_not_skeleton_or_captcha('video-skeleton-container')
+                # await load_more_button.click()
 
             
             elif pull_method == 'requests':

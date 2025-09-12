@@ -36,12 +36,18 @@ class Base:
         content_element = page.locator(content_tag).first
         # content_element = page.get_by_text('Videos', exact=True)
         captcha_element = get_captcha_element(page)
-
-        try:
-            await expect(content_element.or_(captcha_element)).to_be_visible(timeout=TOK_DELAY * 1000)
-
-        except TimeoutError as e:
-            raise exceptions.TimeoutException(str(e))
+        
+        max_tries = 10
+        tries = 0
+        self.parent.logger.debug("Waiting for main content to become visible")
+        while tries < max_tries:
+            is_content_visible = await content_element.is_visible()
+            is_captcha_visible = await captcha_element.is_visible()
+            if is_content_visible or is_captcha_visible:
+                break
+            await asyncio.sleep(0.5)
+            await self.check_and_resolve_refresh_button()
+            tries += 1
 
         captcha_visible = await captcha_element.is_visible()
         if captcha_visible:

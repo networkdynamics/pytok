@@ -390,7 +390,7 @@ class User(Base):
             if not data_requests:
                 tries += 1
                 if tries > MAX_TRIES:
-                    raise EmptyResponseException('TikTok backend broke')
+                    raise ApiFailedException('TikTok backend broke')
                 continue
 
             for data_request in data_requests:

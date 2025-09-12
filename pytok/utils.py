@@ -3,7 +3,9 @@ import json
 import os
 import re
 
+import numpy as np
 import pandas as pd
+import polars as pl
 import tqdm
 
 LOGGER_NAME: str = "PyTok"
@@ -241,38 +243,44 @@ def extract_video_features(video):
         'duetFromId'] != share_video_id:
         raise ValueError("Comment metadata is mismatched")
 
-    vid_features = (
-        video['id'],
-        datetime.utcfromtimestamp(int(video['createTime'])),
-        video['author']['uniqueId'],
-        video['author']['id'],
-        video['desc'],
-        hashtags,
-        share_video_id,
-        share_video_user_id,
-        share_video_user_name,
-        share_type,
-        mentions,
-        video['stats']['diggCount'],
-        video['stats']['shareCount'],
-        video['stats']['commentCount'],
-        video['stats']['playCount'],
-        video['aigcLabelType'] if 'aigcLabelType' in video else None
-    )
+    ai_gc_label_type = None
+    if 'ai_gc_label_type' in video:
+        if video['ai_gc_label_type'] is not None and np.isnan(video['ai_gc_label_type']):
+            video['ai_gc_label_type'] = None
+        ai_gc_label_type = video['ai_gc_label_type']
+
+    vid_features = {
+        'video_id': video['id'],
+        'createtime': datetime.utcfromtimestamp(int(video['createTime'])),
+        'author_name': video['author']['uniqueId'],
+        'author_id': video['author']['id'],
+        'desc': video['desc'],
+        'hashtags': hashtags,
+        'share_video_id': share_video_id,
+        'share_video_user_id': share_video_user_id,
+        'share_video_user_name': share_video_user_name,
+        'share_type': share_type,
+        'mentions': mentions,
+        'digg_count': video['stats']['diggCount'],
+        'share_count': video['stats']['shareCount'],
+        'comment_count': video['stats']['commentCount'],
+        'view_count': video['stats']['playCount'],
+        'ai_gc_label_type': ai_gc_label_type
+    }
     return vid_features
 
 
-def get_video_df(videos):
+def get_video_df(videos) -> pl.DataFrame:
     vids_data = []
     for video in videos:
         vid_features = extract_video_features(video)
-        vids_data.append(vid_features)
+        vid_data = vid_features | {k: v for k, v in video.items() if k not in ['id', 'desc', 'createTime']}
+        vids_data.append(vid_data)
 
-    video_df = pd.DataFrame(vids_data, columns=[
-        'video_id', 'createtime', 'author_name', 'author_id', 'desc', 'hashtags',
-        'share_video_id', 'share_video_user_id', 'share_video_user_name', 'share_type', 'mentions',
-        'digg_count', 'share_count', 'comment_count', 'view_count', 'ai_gc_label_type'
-    ])
+    try:
+        video_df = pl.from_dicts(vids_data)
+    except Exception:
+        video_df = pl.from_dicts(vids_data, infer_schema_length=len(vids_data))
 
     return video_df
 
@@ -320,7 +328,7 @@ def try_load_user_df_from_file(file_path, file_paths=[]):
         return user_df
 
 
-def get_user_df(entities):
+def get_user_df(entities) -> pl.DataFrame:
     users = {}
     for entity in entities:
         if 'user' in entity:
@@ -409,4 +417,4 @@ def get_user_df(entities):
         'diggCount': 'num_likes'
     })
 
-    return user_df
+    return pl.from_pandas(user_df)

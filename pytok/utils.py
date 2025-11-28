@@ -275,11 +275,13 @@ def get_video_df(videos) -> pl.DataFrame:
     for video in videos:
         vid_features = extract_video_features(video)
         vid_data = vid_features | {k: v for k, v in video.items() if k not in ['id', 'desc', 'createTime']}
+        if 'video' in vid_data and vid_data['video']['volumeInfo'] is not None and '' in vid_data['video']['volumeInfo']:
+            del vid_data['video']['volumeInfo']['']
         vids_data.append(vid_data)
 
     try:
         video_df = pl.from_dicts(vids_data)
-    except Exception:
+    except (Exception, pl.exceptions.PanicException):
         video_df = pl.from_dicts(vids_data, infer_schema_length=len(vids_data))
 
     return video_df

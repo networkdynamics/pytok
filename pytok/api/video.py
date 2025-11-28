@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import logging
 import json
 from urllib import parse as url_parsers
 from typing import TYPE_CHECKING, ClassVar, Optional
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 from .base import Base
 from ..helpers import extract_tag_contents, edit_url, extract_video_id_from_url, extract_user_id_from_url
 from .. import exceptions
+
+logger = logging.getLogger("pytok.api.video")
 
 class Counter:
     def __init__(self):
@@ -176,6 +179,8 @@ class Video(Base):
         """
         page = self.parent._page
         url = self._get_url()
+        if page.url == url:
+            return
         try:
             async with page.expect_request(url) as event:
                 await page.goto(url)
@@ -185,6 +190,15 @@ class Video(Base):
                     raise exceptions.NotAvailableException("Content is not available")
             # no need to check for captcha, because video data is in the html regardless
             await self.wait_for_content_or_unavailable('[id="main-content-video_detail"]', 'Video currently unavailable')
+        except exceptions.NotAvailableException as e:
+            # fetch specific error message
+            initial_html_response = self.get_responses(url)[-1]
+            html_body = await self.get_response_body(initial_html_response)
+            contents = extract_tag_contents(html_body)
+            res = json.loads(contents)
+
+            video_detail = res['__DEFAULT_SCOPE__']['webapp.video-detail']
+            raise exceptions.NotAvailableException(f"Content is not available with status message: {video_detail['statusMsg']}")
         except PlaywrightTimeoutError as e:
             raise exceptions.TimeoutException(str(e))
         
@@ -336,6 +350,10 @@ class Video(Base):
             cookies = await self.parent._context.cookies()
             cookies = {cookie['name']: cookie['value'] for cookie in cookies}
             r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
+
+            if not r.content:
+                return
+
             res = r.json()
 
             reply_comments = res.get("comments", [])
@@ -357,7 +375,7 @@ class Video(Base):
             num_comments_to_fetch = comment['reply_comment_total'] - num_already_fetched
 
     async def comments(self, count=200, batch_size=100):
-        if self.id and self.username:
+        if (self.id and self.username) or self.as_dict:
             await self.view()
             await self.wait_for_content_or_unavailable_or_captcha('css=[data-e2e=comment-level-1]',
                                                                   'Be the first to comment!')
@@ -409,7 +427,7 @@ class Video(Base):
 
             if len(data_responses) == 0:
                 if tries > 5:
-                    print(f"Not sending anymore!")
+                    logger.debug(f"Not sending anymore!")
                     break
                 tries += 1
 
@@ -454,7 +472,7 @@ class Video(Base):
             raise Exception(f"Failed to get comments with status code {r.status_code}")
 
         if len(r.content) == 0:
-            print("Failed to comments from API, switching to scroll")
+            logger.debug("Failed to get comments from API, switching to scroll")
             raise exceptions.ApiFailedException("No content in response")
 
         try:
@@ -524,8 +542,7 @@ class Video(Base):
                     except Exception as e:
                         pass
                 else:
-                    print("Failed to get all comments at once")
-                    print("Trying batched...")
+                    logger.debug("Failed to get all comments at once, trying batched...")
                     raise Exception("Failed to get comments")
             except Exception as e:
 

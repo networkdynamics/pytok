@@ -4,13 +4,12 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
-import requests
 
 from ..exceptions import *
-from ..helpers import extract_tag_contents, edit_url
+from ..helpers import extract_tag_contents
 
 from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
 
@@ -166,80 +165,56 @@ class User(Base):
             # do something
         ```
         """
-        if self.as_dict and self.as_dict['videoCount'] == 0:
+        if self.as_dict and self.as_dict.get('videoCount', 1) == 0:
             return
-        
+
         try:
             videos, finished, cursor = await self._get_initial_videos(count, get_bytes)
+            self.parent.logger.info(f"Got {len(videos)} initial videos, finished={finished}, cursor={cursor}")
             for video in videos:
                 yield video
 
             if finished or count and len(videos) >= count:
+                self.parent.logger.info(f"Finished after initial videos")
                 return
 
+            self.parent.logger.info(f"Continuing with _get_videos_api to get more videos")
             async for video in self._get_videos_api(count, cursor, get_bytes, **kwargs):
                 yield video
-        except ApiFailedException:
+        except ApiFailedException as ex:
+            self.parent.logger.warning(f"API method failed with exception: {ex}. Falling back to scraping method.")
             async for video in self._get_videos_scraping(count, get_bytes):
                 yield video
         except Exception as ex:
             raise
 
     async def _get_videos_api(self, count, cursor, get_bytes, **kwargs) -> Iterator[Video]:
-        # requesting videos via the api in the context of the browser session makes tiktok kill the session
-        # using requests instead
+        # Use TikTok-Api's make_request method instead of manual requests
+        self.parent.logger.debug(f"Starting _get_videos_api with cursor={cursor}, count={count}")
         amount_yielded = 0
 
-        data_request = self.parent.request_cache['videos']
-
-        all_cookies = await self.parent._context.cookies()
-        verify_cookies = [cookie for cookie in all_cookies if cookie['name'] == 's_v_web_id']
-        if not verify_cookies:
-            raise ApiFailedException("Failed to get videos from API without verify cookies")
-        verify_fp = verify_cookies[0]['value']
-
         while (count is None or amount_yielded < count):
-            next_url = edit_url(
-                data_request.url, 
-                {
-                    'cursor': cursor, 
-                    'id': self.user_id, 
-                    'secUid': self.sec_uid,
-                    'needPinnedItemIds': True,
-                    'post_item_list_request_type': 0,
-                    'verifyFp': verify_fp
-                }
-            )
-            headers = {
-                'accept': '*/*',
-                'accept-encoding': 'gzip, deflate, br, zstd',
-                'accept-language': 'en-GB,en;q=0.9',
-                'priority': 'u=1, i',
-                'referer': f'https://www.tiktok.com/@{self.username}?lang=en',
-                'sec-ch-ua': '"Not;A=Brand";v="24", "Chromium";v="128"',
-                'sec-ch-ua-mobile': '?0',
-                'sec-ch-ua-platform': '"Windows"',
-                'sec-fetch-dest': 'empty',
-                'sec-fetch-mode': 'cors',
-                'sec-fetch-site': 'same-origin',
-                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.18 Safari/537.36'
+            params = {
+                'secUid': self.sec_uid,
+                'count': 35,
+                'cursor': cursor,
             }
-            cookies = await self.parent._context.cookies()
-            cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-            r = requests.get(next_url, headers=headers, cookies=cookies)
 
-            if r.status_code != 200:
-                raise ApiFailedException(f"Failed to get videos from API with status code {r.status_code}")
-            if not r.content:
-                raise ApiFailedException(f"Failed to get videos from API with empty response")
+            self.parent.logger.debug(f"Making TikTok-Api request with cursor={cursor}")
+            # Use TikTok-Api's make_request which handles signing and headers
+            res = await self.parent.tiktok_api.make_request(
+                url="https://www.tiktok.com/api/post/item_list/",
+                params=params,
+            )
+            self.parent.logger.debug(f"TikTok-Api response received with {len(res.get('itemList', []))} videos")
 
-            res = r.json()
+            if res is None:
+                raise ApiFailedException("TikTok-Api returned None response")
 
             if res.get('type') == 'verify':
                 raise ApiFailedException("TikTok API is asking for verification")
 
             videos = res.get('itemList', [])
-            cursor = int(res['cursor'])
 
             if videos:
                 amount_yielded += len(videos)
@@ -253,6 +228,7 @@ class User(Base):
                 )
                 return
 
+            cursor = res.get('cursor', cursor)
             await self.parent.request_delay()
         
 
@@ -342,12 +318,14 @@ class User(Base):
             await self.parent.request_delay()
 
     async def _get_initial_videos(self, count, get_bytes):
+        self.parent.logger.debug("Getting initial videos from page responses")
         all_videos = []
         finished = False
 
         cursor = 0
         video_responses = self.get_responses('api/post/item_list')
         video_responses = [res for res in video_responses if f"secUid={self.sec_uid}" in res.url]
+        self.parent.logger.debug(f"Found {len(video_responses)} video responses in page")
         for video_response in video_responses:
             try:
                 if len(video_response._body) == 0:

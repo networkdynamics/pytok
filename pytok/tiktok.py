@@ -5,6 +5,7 @@ import time
 from typing import Optional
 
 from patchright.async_api import async_playwright
+from TikTokApi import TikTokApi
 
 from .api.sound import Sound
 from .api.user import User
@@ -42,6 +43,7 @@ class PyTok:
             browser: Optional[str] = "chromium",
             manual_captcha_solves: Optional[bool] = False,
             log_captcha_solves: Optional[bool] = False,
+            num_sessions: int = 1,
     ):
         """The PyTok class. Used to interact with TikTok. This is a singleton
             class to prevent issues from arising with playwright
@@ -54,6 +56,8 @@ class PyTok:
             This is used to throttle your own requests as you may end up making too
             many requests to TikTok for your IP.
 
+        * num_sessions: Number of browser sessions to create (used by TikTok-Api), optional
+
         * **kwargs
             Parameters that are passed on to basically every module and methods
             that interact with this main class. These may or may not be documented
@@ -65,6 +69,7 @@ class PyTok:
         self._browser = browser
         self._manual_captcha_solves = manual_captcha_solves
         self._log_captcha_solves = log_captcha_solves
+        self._num_sessions = num_sessions
 
         self.logger.setLevel(logging_level)
 
@@ -78,6 +83,9 @@ class PyTok:
 
         self.request_cache = {}
 
+        # Create TikTokApi instance for API requests
+        self.tiktok_api = TikTokApi(logging_level=logging_level)
+
         if self._headless:
             from pyvirtualdisplay import Display
             self._display = Display()
@@ -89,26 +97,19 @@ class PyTok:
         # # options.page_load_strategy = 'eager'
 
     async def __aenter__(self):
-        self._playwright = await async_playwright().start()
-        fingerprint_options = {}
-        if self._browser == "firefox":
-            self._browser = await self._playwright.firefox.launch(headless=self._headless)
-            # fingerprint_options['browser'] = [ForgeBrowser("firefox")]
-        elif self._browser == "chromium":
-            self._browser = await self._playwright.chromium.launch(
-                # user_data_dir="...",
-                channel="chrome",
-                headless=False,
-                # no_viewport=True,
-                # do NOT add custom browser headers or user_agent
-            )
-            # fingerprint_options['browser'] = 'chrome'
-        else:
-            raise Exception("Browser not supported")
-        # self._context = await AsyncNewContext(self._browser, fingerprint_options=fingerprint_options)
-        # device_config = self._playwright.devices['Desktop Chrome']
-        self._context = await self._browser.new_context()
-        self._page = await self._context.new_page()
+        # Create TikTok-Api sessions
+        await self.tiktok_api.create_sessions(
+            num_sessions=self._num_sessions,
+            headless=self._headless,
+            browser=self._browser,
+        )
+
+        # Use TikTok-Api's browser session objects directly
+        session = self.tiktok_api.sessions[0]
+        self._playwright = self.tiktok_api.playwright
+        self._browser = self.tiktok_api.browser
+        self._context = session.context
+        self._page = session.page
 
         # move mouse to 0, 0 to have known mouse start position
         await self._page.mouse.move(0, 0)
@@ -155,9 +156,8 @@ class PyTok:
 
     async def shutdown(self) -> None:
         try:
-            await self._context.close()
-            await self._browser.close()
-            await self._playwright.stop()
+            # Close TikTok-Api sessions (which closes browser, contexts, and playwright)
+            await self.tiktok_api.close_sessions()
         except Exception:
             pass
         finally:

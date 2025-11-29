@@ -7,3 +7,4 @@ pandas
 tqdm
 patchright
 pyclick
+TikTokApi

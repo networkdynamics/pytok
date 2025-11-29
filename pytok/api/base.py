@@ -419,48 +419,9 @@ class Base:
         -now a local CAPTCHA solver will decide how to place the piece in the puzzle
         -finally, the solution will be POSTed to TikTok, and the server's response will be obtained
         """
-        solve = await captcha_solver.CaptchaSolver(captcha_response, puzzle, piece).solve_captcha()
-
         page = self.parent._page
-        drag = page.locator('css=div.secsdk-captcha-drag-icon').first
-        bar = page.locator('css=div.captcha_verify_slide--slidebar').first
-        
-        drag_bounding_box = await drag.bounding_box()
-        bar_bounding_box = await bar.bounding_box()
-
-        drag_centre = {
-            'x': drag_bounding_box['x'] + drag_bounding_box['width'] / 2,
-            'y': drag_bounding_box['y'] + drag_bounding_box['height'] / 2
-        }
-
-        bar_effective_width = bar_bounding_box['width'] - drag_bounding_box['width']
-        distance_to_drag = bar_effective_width * solve['maxloc']
-
-        from pyclick import HumanCurve
-
-        curve_kwargs = {
-            'knotsCount': 7, 
-            'distortionMean': 14.3, 
-            'distortionStdev': 22.7, 
-            'distortionFrequency': 0.8, 
-            'targetPoints': 500
-        }
-        points = HumanCurve(
-            [0, 0], 
-            [int(drag_centre['x']), int(drag_centre['y'])],
-            **curve_kwargs
-        ).points
-        for point in points:
-            await page.mouse.move(point[0], point[1])
-        await page.mouse.down()
-        points = HumanCurve(
-            [int(drag_centre['x']), int(drag_centre['y'])], 
-            [int(drag_centre['x'] + distance_to_drag), int(drag_centre['y'])],
-            **curve_kwargs
-        ).points
-        for point in points:
-            await page.mouse.move(point[0], point[1])
-        await page.mouse.up()
+        solver = captcha_solver.CaptchaSolver(captcha_response, puzzle, piece, page=page)
+        solve = await solver.solve_and_drag()
 
         if self.parent._log_captcha_solves:
             await asyncio.sleep(1)

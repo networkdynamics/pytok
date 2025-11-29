@@ -9,12 +9,15 @@ import requests
 
 
 class CaptchaSolver:
-    def __init__(self, response, puzzle, piece):
+    def __init__(self, response, puzzle, piece, page=None, mouse_step_size=1, mouse_step_delay_ms=10):
         self._request = response.request
         self._response = response
         self._client = requests.Session()
         self._puzzle = base64.b64encode(puzzle)
         self._piece = base64.b64encode(piece)
+        self._page = page
+        self.mouse_step_size = mouse_step_size
+        self.mouse_step_delay_ms = mouse_step_delay_ms
 
     def _host(self):
         return urlparse(self._request.url).netloc
@@ -131,6 +134,93 @@ class CaptchaSolver:
         elif captcha_challenge["mode"] == "whirl":
             solve['tip'] = 0
         return solve
+
+    async def solve_and_drag(self):
+        """Solve the captcha and perform the drag operation"""
+        if not self._page:
+            raise ValueError("Page object is required for solve_and_drag method")
+
+        # Get the solution
+        solve = await self.solve_captcha()
+
+        # Perform the drag
+        if self._mode == "slide":
+            await self._drag_puzzle_slider(solve['maxloc'])
+        elif self._mode == "whirl":
+            await self._drag_whirl_slider(solve['maxloc'])
+
+        return solve
+
+    async def _drag_element_horizontal(self, css_selector: str, x_offset: int) -> None:
+        """
+        Drag an element horizontally with realistic mouse movement.
+        Based on tiktok-captcha-solver implementation.
+        """
+        e = self._page.locator(css_selector)
+        box = await e.bounding_box()
+        if not box:
+            raise AttributeError("Element had no bounding box")
+
+        # Start position - slightly offset from center
+        start_x = (box["x"] + (box["width"] / 1.337))
+        start_y = (box["y"] + (box["height"] / 1.337))
+
+        # Move to start position
+        await self._page.mouse.move(start_x, start_y)
+        await asyncio.sleep(random.randint(1, 10) / 11)
+
+        # Press mouse down
+        await self._page.mouse.down()
+
+        # Drag with small incremental steps (overshoot by 5 pixels)
+        for pixel in range(0, x_offset + 5, self.mouse_step_size):
+            await self._page.mouse.move(start_x + pixel, start_y)
+            await self._page.wait_for_timeout(self.mouse_step_delay_ms)
+
+        await asyncio.sleep(0.25)
+
+        # Correction movements (simulate human overshoot correction)
+        for pixel in range(-5, 2):
+            await self._page.mouse.move(start_x + x_offset - pixel, start_y + pixel)
+            await self._page.wait_for_timeout(self.mouse_step_delay_ms // 2)
+
+        await asyncio.sleep(0.2)
+
+        # Final smooth positioning
+        await self._page.mouse.move(start_x + x_offset, start_y, steps=75)
+        await asyncio.sleep(0.3)
+
+        # Release mouse
+        await self._page.mouse.up()
+
+    async def _drag_puzzle_slider(self, maxloc: float) -> None:
+        """Drag the puzzle slider to solve slide captcha"""
+        # Get elements
+        drag = self._page.locator('css=div.secsdk-captcha-drag-icon').first
+        bar = self._page.locator('css=div.captcha_verify_slide--slidebar').first
+
+        drag_bounding_box = await drag.bounding_box()
+        bar_bounding_box = await bar.bounding_box()
+
+        if not drag_bounding_box or not bar_bounding_box:
+            raise AttributeError("Could not get bounding boxes for drag elements")
+
+        # Calculate drag distance
+        bar_effective_width = bar_bounding_box['width'] - drag_bounding_box['width']
+        distance_to_drag = int(bar_effective_width * maxloc)
+
+        # Perform the drag
+        await self._drag_element_horizontal('css=div.secsdk-captcha-drag-icon', distance_to_drag)
+
+    async def _drag_whirl_slider(self, maxloc: float) -> None:
+        """Drag the whirl/rotate slider"""
+        # For whirl captcha, need to calculate based on rotation
+        # This is a simplified version - may need adjustment based on actual implementation
+        slide_bar_width = 340  # Default from original code
+        slide_button_width = 69  # Approximate
+        distance = int((slide_bar_width - slide_button_width) * maxloc)
+
+        await self._drag_element_horizontal('css=div.secsdk-captcha-drag-icon', distance)
 
 
 class PuzzleSolver:

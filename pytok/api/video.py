@@ -92,28 +92,42 @@ class Video(Base):
         ```
         """
         if not hasattr(self, 'as_dict'):
-            url = self._get_url()
-            page = self.parent._page
-            if page.url != url:
-                await self.view()
-
-            await self.check_and_resolve_login_popup()
-
-            # get initial html data
-            initial_html_response = self.get_responses(url)[-1]
-            html_body = await self.get_response_body(initial_html_response)
-            contents = extract_tag_contents(html_body)
-            res = json.loads(contents)
-
-            video_detail = res['__DEFAULT_SCOPE__']['webapp.video-detail']
-            if video_detail['statusCode'] != 0:
-                raise exceptions.NotAvailableException(
-                    f"Content is not available with status message: {video_detail['statusMsg']}")
-            video_data = video_detail['itemInfo']['itemStruct']
+            try:
+                video_data = await self._info_api(**kwargs)
+            except Exception as ex:
+                self.parent.logger.debug(f"API info fetch failed with exception: {ex}, falling back to scraping")
+                video_data = await self._info_scraping(**kwargs)
+                
             self.as_dict = video_data
         else:
             video_data = self.as_dict
 
+        return video_data
+    
+    async def _info_api(self, **kwargs) -> dict:
+        video_obj = self.parent.tiktok_api.video(id=self.id, url=self._get_url())
+        video_data = await video_obj.info()
+        return video_data
+    
+    async def _info_scraping(self, **kwargs) -> dict:
+        url = self._get_url()
+        page = self.parent._page
+        if page.url != url:
+            await self.view()
+
+        await self.check_and_resolve_login_popup()
+
+        # get initial html data
+        initial_html_response = self.get_responses(url)[-1]
+        html_body = await self.get_response_body(initial_html_response)
+        contents = extract_tag_contents(html_body)
+        res = json.loads(contents)
+
+        video_detail = res['__DEFAULT_SCOPE__']['webapp.video-detail']
+        if video_detail['statusCode'] != 0:
+            raise exceptions.NotAvailableException(
+                f"Content is not available with status message: {video_detail['statusMsg']}")
+        video_data = video_detail['itemInfo']['itemStruct']
         return video_data
 
     async def network_info(self, **kwargs) -> dict:
@@ -230,6 +244,20 @@ class Video(Base):
         TikTok Videos to the current Video.
         
         """
+        try:
+            async for video in self._related_videos_api(count=count):
+                yield video
+        except Exception as ex:
+            self.parent.logger.debug(f"API related videos fetch failed with exception: {ex}, falling back to scraping")
+            async for video in self._related_videos_scraping(count=count):
+                yield video
+
+    async def _related_videos_api(self, count=20) -> list[dict]:
+        video_obj = self.parent.tiktok_api.video(id=self.id, url=self._get_url())
+        async for video in video_obj.related_videos(count=count):
+            yield video
+
+    async def _related_videos_scraping(self, count=20) -> list[dict]:
         counter = Counter()
         async for video in self._related_videos(counter, count=count):
             yield video

@@ -43,7 +43,7 @@ class PyTok:
             browser: Optional[str] = "chromium",
             manual_captcha_solves: Optional[bool] = False,
             log_captcha_solves: Optional[bool] = False,
-            num_sessions: int = 1,
+            num_sessions: int = 3,
     ):
         """The PyTok class. Used to interact with TikTok. This is a singleton
             class to prevent issues from arising with playwright
@@ -98,10 +98,14 @@ class PyTok:
 
     async def __aenter__(self):
         # Create TikTok-Api sessions
+        suppress_resource_load_types = ['document', 'stylesheet', 'image', 'media', 'font', 'script', 'textrack', 'xhr', 'fetch', 'eventsource', 'websocket', 'manifest', 'other']
         await self.tiktok_api.create_sessions(
             num_sessions=self._num_sessions,
             headless=self._headless,
             browser=self._browser,
+            suppress_resource_load_types=suppress_resource_load_types,
+            starting_url='https://www.tiktok.com/@therock',
+            allow_partial_sessions=True,
         )
 
         # Use TikTok-Api's browser session objects directly

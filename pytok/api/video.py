@@ -298,10 +298,6 @@ class Video(Base):
                     return res._body
         # if we don't have the bytes in the response, we need to get it from the server
 
-        
-
-        
-
         # send the request ourselves
         exceptions = []
         for bytes_url in bytes_urls:

@@ -202,10 +202,16 @@ class User(Base):
 
             self.parent.logger.debug(f"Making TikTok-Api request with cursor={cursor}")
             # Use TikTok-Api's make_request which handles signing and headers
-            res = await self.parent.tiktok_api.make_request(
-                url="https://www.tiktok.com/api/post/item_list/",
-                params=params,
-            )
+            try:
+                res = await self.parent.tiktok_api.make_request(
+                    url="https://www.tiktok.com/api/post/item_list/",
+                    params=params,
+                )
+            except Exception as e:
+                # Convert any exception from make_request to ApiFailedException
+                # to trigger fallback to scraping method
+                self.parent.logger.warning(f"make_request failed: {e}")
+                raise ApiFailedException(f"TikTok-Api make_request failed: {e}")
             self.parent.logger.debug(f"TikTok-Api response received with {len(res.get('itemList', []))} videos")
 
             if res is None:

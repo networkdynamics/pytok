@@ -271,7 +271,7 @@ class Video(Base):
             async for video in self._related_videos(counter, count=count):
                 yield video
 
-    async def bytes(self, **kwargs) -> bytes:
+    async def bytes(self, timeout=10) -> bytes:
         """
         Returns the bytes of a TikTok Video.
 
@@ -284,37 +284,49 @@ class Video(Base):
             output.write(video_bytes)
         ```
         """
-        bytes_url = self.as_dict['video']['playAddr']
-        if len(bytes_url) == 0:
+        bytes_play_url = self.as_dict['video'].get('playAddr', None)
+        bytes_download_url = self.as_dict['video'].get('downloadAddr', None)
+        bytes_urls = [bytes_download_url, bytes_play_url]
+        bytes_urls = [url for url in bytes_urls if url is not None and len(url) > 0]
+        if len(bytes_urls) == 0:
             raise exceptions.NotAvailableException("Post does not have a video")
-        play_path = url_parsers.urlparse(bytes_url).path
-        resps = self.get_responses(play_path)
-        if len(resps) > 0:
-            for res in resps:
-                if hasattr(res, '_body'):
-                    if len(res._body) > 0:
-                        return res._body
+        paths = [url_parsers.urlparse(bytes_url).path for bytes_url in bytes_urls]
+        resps = [resp for play_path in paths for resp in self.get_responses(play_path)]
+        for res in resps:
+            if hasattr(res, '_body'):
+                if len(res._body) > 0:
+                    return res._body
         # if we don't have the bytes in the response, we need to get it from the server
 
-        # send the request ourselves
-        try:
-            return await asyncio.wait_for(self._request_bytes(bytes_url), timeout=10)
-        except TimeoutError:
-            raise exceptions.TimeoutException("Failed to get video bytes in time")
+        
 
-    async def _request_bytes(self, bytes_url):
-        bytes_headers = {
-            'sec-ch-ua': '"HeadlessChrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"', 
-            'referer': 'https://www.tiktok.com/', 
-            'accept-encoding': 'identity;q=1, *;q=0', 
-            'sec-ch-ua-mobile': '?0', 
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.6312.4 Safari/537.36', 
-            'range': 'bytes=0-', 
-            'sec-ch-ua-platform': '"Windows"'
-        }
-        cookies = await self.parent._context.cookies()
-        cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-        r = requests.get(bytes_url, headers=bytes_headers, cookies=cookies)
+        
+
+        # send the request ourselves
+        exceptions = []
+        for bytes_url in bytes_urls:
+            try:
+                return await asyncio.wait_for(self._request_bytes(bytes_url), timeout=timeout)
+            except Exception as ex:
+                exceptions.append(ex)
+                continue
+        raise Exception(f"Failed to get video bytes, exceptions: {exceptions}")
+
+    async def _request_bytes(self, bytes_url, headers={}, cookies={}) -> bytes:
+        _, session = self.parent.tiktok_api._get_session()
+        headers = session.headers
+        headers['sec-ch-ua'] = '"HeadlessChrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"'
+        headers['referer'] = 'https://www.tiktok.com/'
+        headers['accept-encoding'] = 'identity;q=1, *;q=0'
+        headers['sec-ch-ua-mobile'] = '?0'
+        headers['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.6312.4 Safari/537.36'
+        headers['range'] = 'bytes=0-'
+        headers['sec-ch-ua-platform'] = '"Windows"'
+
+        cookies = await self.parent.tiktok_api.get_session_cookies(session)
+
+        r = requests.get(bytes_url, headers=headers, cookies=cookies)
+        r.raise_for_status()
         if r.content is not None or len(r.content) > 0:
             return r.content
         raise Exception("Failed to get video bytes")

@@ -299,14 +299,14 @@ class Video(Base):
         # if we don't have the bytes in the response, we need to get it from the server
 
         # send the request ourselves
-        exceptions = []
+        req_exceptions = []
         for bytes_url in bytes_urls:
             try:
                 return await asyncio.wait_for(self._request_bytes(bytes_url), timeout=timeout)
             except Exception as ex:
-                exceptions.append(ex)
+                req_exceptions.append(ex)
                 continue
-        raise Exception(f"Failed to get video bytes, exceptions: {exceptions}")
+        raise Exception(f"Failed to get video bytes, exceptions: {req_exceptions}")
 
     async def _request_bytes(self, bytes_url, headers={}, cookies={}) -> bytes:
         _, session = self.parent.tiktok_api._get_session()

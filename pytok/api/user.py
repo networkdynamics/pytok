@@ -91,7 +91,17 @@ class User(Base):
             raise TypeError(
                 "You must provide the username when creating this class to use this method."
             )
+        
+        try:
+            resp = await self.parent.tiktok_api.user(self.username).info()
+            self.as_dict = resp
+            self.__extract_from_data()
+            return resp
+        except Exception as ex:
+            self.parent.logger.warning(f"TikTok-Api user.info_full() failed: {ex}. Falling back to scraping method.")
+            return await self._info_full_scrape(**kwargs)
 
+    async def _info_full_scrape(self, **kwargs) -> dict:
         url = f"https://www.tiktok.com/@{self.username}?lang=en"
 
         page = self.parent._page

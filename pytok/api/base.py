@@ -16,10 +16,10 @@ def get_login_close_element(page):
 
 
 def get_captcha_element(page):
-    return page.locator('Rotate the shapes') \
+    return page.get_by_text('Rotate the shapes', exact=True) \
         .or_(page.get_by_text('Verify to continue:', exact=True)) \
         .or_(page.get_by_text('Click on the shapes with the same size', exact=True)) \
-        .or_(page.get_by_text('Drag the slider to fit the puzzle', exact=True).first)
+        .or_(page.get_by_text('Drag the slider to fit the puzzle', exact=True))
 
 
 class Base:
@@ -121,8 +121,9 @@ class Base:
         self.parent.logger.debug("Checking for refresh button")
         if await refresh_button.is_visible():
             self.parent.logger.debug("Refresh button found, clicking")
-            await refresh_button.click()
+            await refresh_button.click(timeout=5000, force=True)
             await asyncio.sleep(1)
+
 
     async def check_and_resolve_login_popup(self):
         page: Page = self.parent._page

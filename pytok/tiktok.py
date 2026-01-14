@@ -277,7 +277,9 @@ class PyTok:
         self.request_cache = {}
 
         # Create TikTokApi instance for API requests
-        self.tiktok_api = PatchrightTikTokApi(logging_level=logging_level)
+        self.tiktok_api = PatchrightTikTokApi(
+            logging_level=logging_level
+        )
 
         if self._headless:
             from pyvirtualdisplay import Display
@@ -299,6 +301,10 @@ class PyTok:
             browser=self._browser,
             suppress_resource_load_types=suppress_resource_load_types,
             starting_url='https://www.tiktok.com',
+            override_browser_args=[
+                '--disable-backgrouding-occluded-windows',
+                '--disable-renderer-backgrounding',
+            ]
         )
 
         # Use TikTok-Api's browser and playwright, but create a separate context

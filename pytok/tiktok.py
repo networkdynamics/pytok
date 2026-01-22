@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import re
@@ -14,6 +15,8 @@ from patchright.async_api import (
 )
 from proxyproviders import ProxyProvider
 from proxyproviders.algorithms import Algorithm
+import zendriver as zd
+from zendriver import cdp
 
 from TikTokApi import TikTokApi
 from TikTokApi.helpers import random_choice
@@ -33,190 +36,6 @@ os.environ["no_proxy"] = "127.0.0.1,localhost"
 BASE_URL = "https://m.tiktok.com/"
 DESKTOP_BASE_URL = "https://www.tiktok.com/"
 
-class PatchrightTikTokApi(TikTokApi):
-    async def create_sessions(
-        self,
-        num_sessions: int = 5,
-        headless: bool = True,
-        ms_tokens: list[str] | None = None,
-        proxies: list[dict[str, Any] | ProxySettings] | None = None,
-        proxy_provider: Optional[ProxyProvider] = None,
-        proxy_algorithm: Optional[Algorithm] = None,
-        sleep_after: int = 1,
-        starting_url: str = "https://www.tiktok.com",
-        context_options: dict[str, Any] = {},
-        override_browser_args: list[str] | None = None,
-        cookies: list[dict[str, Any]] | None = None,
-        suppress_resource_load_types: list[str] | None = None,
-        browser: str = "chromium",
-        executable_path: str | None = None,
-        page_factory: Callable[[BrowserContext], Awaitable[Page]] | None = None,
-        browser_context_factory: (
-            Callable[[Playwright], Awaitable[BrowserContext]] | None
-        ) = None,
-        timeout: int = 30000,
-        enable_session_recovery: bool = True,
-        allow_partial_sessions: bool = False,
-        min_sessions: int | None = None,
-    ):
-        """
-        Create sessions for use within the TikTokApi class.
-
-        These sessions are what will carry out requesting your data from TikTok.
-
-        Args:
-            num_sessions (int): The amount of sessions you want to create.
-            headless (bool): Whether or not you want the browser to be headless.
-            ms_tokens (list[str]): A list of msTokens to use for the sessions, you can get these from your cookies after visiting TikTok.
-                                   If you don't provide any, the sessions will try to get them themselves, but this is not guaranteed to work.
-            proxies (list): **DEPRECATED - Use proxy_provider instead.** A list of proxies to use for the sessions.
-                           This parameter is maintained for backwards compatibility but will be removed in a future version.
-            proxy_provider (ProxyProvider | None): A ProxyProvider instance for smart proxy rotation.
-                                                   See examples/proxy_provider_example.py for usage examples. Full documentation: https://davidteather.github.io/proxyproviders/
-            proxy_algorithm (Algorithm | None): Algorithm for proxy selection (RoundRobin, Random, First, or custom) per session.
-                                               Only used with proxy_provider. Defaults to RoundRobin if not specified.
-            sleep_after (int): The amount of time to sleep after creating a session, this is to allow the msToken to be generated.
-            starting_url (str): The url to start the sessions on, this is usually https://www.tiktok.com.
-            context_options (dict): Options to pass to the playwright context.
-            override_browser_args (list[dict]): A list of dictionaries containing arguments to pass to the browser.
-            cookies (list[dict]): A list of cookies to use for the sessions, you can get these from your cookies after visiting TikTok.
-            suppress_resource_load_types (list[str]): Types of resources to suppress playwright from loading, excluding more types will make playwright faster.. Types: document, stylesheet, image, media, font, script, textrack, xhr, fetch, eventsource, websocket, manifest, other.
-            browser (str): firefox, chromium, or webkit; default is chromium
-            executable_path (str): Path to the browser executable
-            page_factory (Callable[[BrowserContext], Awaitable[Page]]) | None: Optional async function for instantiating pages.
-            browser_context_factory (Callable[[Playwright], Awaitable[BrowserContext]]) | None: Optional async function for creating browser contexts. When provided, you can choose any browser (chromium/firefox/webkit) inside the factory, and the 'browser' parameter is ignored.
-            timeout (int): The timeout in milliseconds for page navigation
-            enable_session_recovery (bool): Enable automatic session recovery on failures (default: True)
-            allow_partial_sessions (bool): If True, succeed even if some sessions fail to create. If False (default), fail if any session fails
-            min_sessions (int | None): Minimum number of sessions required. Only used if allow_partial_sessions=True. If None, defaults to 1.
-
-        Example Usage:
-            .. code-block:: python
-
-                from TikTokApi import TikTokApi
-
-                async with TikTokApi() as api:
-                    await api.create_sessions(num_sessions=5, ms_tokens=['msToken1', 'msToken2'])
-
-        Proxy Provider Usage:
-            For proxy provider examples with different algorithms and configurations,
-            see examples/proxy_provider_example.py
-
-        Custom Launchers:
-            To implement custom functionality, such as login or captcha solving, when the session is being created,
-            you may use the keyword arguments `browser_context_factory` and `page_factory`.
-            These arguments are callable functions that TikTok-Api will use to launch your browser and pages,
-            and allow you to perform custom actions on the page before the session is created.
-            You can find examples in the test file: tests/test_custom_launchers.py
-        """
-        self._session_recovery_enabled = enable_session_recovery
-        self._proxy_provider = proxy_provider
-        self._proxy_algorithm = proxy_algorithm
-
-        if proxies is not None and proxy_provider is not None:
-            raise ValueError(
-                "Cannot use both 'proxies' and 'proxy_provider' parameters. "
-                "Please use 'proxy_provider' (recommended) or 'proxies' (deprecated)."
-            )
-
-        self.playwright = await async_playwright().start()
-        if browser_context_factory is not None:
-            self.browser = await browser_context_factory(self.playwright)
-        elif browser == "chromium":
-            if headless and override_browser_args is None:
-                override_browser_args = ["--headless=new"]
-                headless = False  # managed by the arg
-            self.browser = await self.playwright.chromium.launch(
-                channel='chrome',
-                headless=headless,
-                args=override_browser_args,
-                proxy=random_choice(proxies),
-                executable_path=executable_path,
-            )
-        elif browser == "firefox":
-            self.browser = await self.playwright.firefox.launch(
-                headless=headless,
-                args=override_browser_args,
-                proxy=random_choice(proxies),
-                executable_path=executable_path,
-            )
-        elif browser == "webkit":
-            self.browser = await self.playwright.webkit.launch(
-                headless=headless,
-                args=override_browser_args,
-                proxy=random_choice(proxies),
-                executable_path=executable_path,
-            )
-        else:
-            raise ValueError("Invalid browser argument passed")
-
-        # Create sessions concurrently
-        # Use return_exceptions only if partial sessions are allowed
-        if allow_partial_sessions:
-            results = await asyncio.gather(
-                *(
-                    self._TikTokApi__create_session(
-                        proxy=(
-                            random_choice(proxies) if proxy_provider is None else None
-                        ),
-                        ms_token=random_choice(ms_tokens),
-                        url=starting_url,
-                        context_options=context_options,
-                        sleep_after=sleep_after,
-                        cookies=random_choice(cookies),
-                        suppress_resource_load_types=suppress_resource_load_types,
-                        timeout=timeout,
-                        page_factory=page_factory,
-                        browser_context_factory=browser_context_factory,
-                    )
-                    for _ in range(num_sessions)
-                ),
-                return_exceptions=True,
-            )
-
-            # Count failures and provide feedback
-            failed_count = sum(1 for r in results if isinstance(r, Exception))
-            success_count = len(self.sessions)
-            minimum_required = min_sessions if min_sessions is not None else 1
-
-            if success_count < minimum_required:
-                # Didn't meet minimum requirements
-                error_messages = [str(r) for r in results if isinstance(r, Exception)]
-                raise Exception(
-                    f"Failed to create minimum required sessions. "
-                    f"Created {success_count}/{num_sessions}, needed at least {minimum_required}.\n"
-                    f"Errors: {error_messages[:3]}"  # Show first 3 errors
-                )
-            elif failed_count > 0:
-                # Some sessions failed but we have enough - log warning and continue
-                self.logger.warning(
-                    f"Created {success_count}/{num_sessions} sessions successfully. "
-                    f"{failed_count} session(s) failed to create."
-                )
-                # Log individual errors at debug level
-                for i, result in enumerate(results):
-                    if isinstance(result, Exception):
-                        self.logger.debug(f"Session {i} creation failed: {result}")
-        else:
-            await asyncio.gather(
-                *(
-                    self._TikTokApi__create_session(
-                        proxy=(
-                            random_choice(proxies) if proxy_provider is None else None
-                        ),
-                        ms_token=random_choice(ms_tokens),
-                        url=starting_url,
-                        context_options=context_options,
-                        sleep_after=sleep_after,
-                        cookies=random_choice(cookies),
-                        suppress_resource_load_types=suppress_resource_load_types,
-                        timeout=timeout,
-                        page_factory=page_factory,
-                        browser_context_factory=browser_context_factory,
-                    )
-                    for _ in range(num_sessions)
-                )
-            )
 
 class PyTok:
     _is_context_manager = False
@@ -228,6 +47,17 @@ class PyTok:
     trending = Trending
     logger = logging.getLogger(LOGGER_NAME)
 
+    # Default browser args for stealth
+    _DEFAULT_BROWSER_ARGS = [
+        '--disable-blink-features=AutomationControlled',
+        '--disable-infobars',
+        '--disable-dev-shm-usage',
+        '--no-first-run',
+        '--disable-background-networking',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+    ]
+
     def __init__(
             self,
             logging_level: int = logging.WARNING,
@@ -237,6 +67,8 @@ class PyTok:
             manual_captcha_solves: Optional[bool] = False,
             log_captcha_solves: Optional[bool] = False,
             num_sessions: int = 1,
+            user_data_dir: Optional[str] = None,
+            browser_args: Optional[list] = None,
     ):
         """The PyTok class. Used to interact with TikTok. This is a singleton
             class to prevent issues from arising with playwright
@@ -251,11 +83,15 @@ class PyTok:
 
         * num_sessions: Number of browser sessions to create (used by TikTok-Api), optional
 
-        * **kwargs
-            Parameters that are passed on to basically every module and methods
-            that interact with this main class. These may or may not be documented
-            in other places.
+        * user_data_dir: Path to Chrome user data directory for profile persistence, optional
+            If not provided, uses a fresh profile each session. Set to your Chrome
+            profile path (e.g., ~/.config/google-chrome) to reuse cookies/history.
+            Note: Don't use a profile that's open in another Chrome instance.
+
+        * browser_args: Additional Chrome command-line arguments, optional
+            Merged with default stealth args. Pass empty list [] to disable defaults.
         """
+        assert headless is False, "Running in headless currently does not work reliably."
 
         self._headless = headless
         self._request_delay = request_delay
@@ -263,6 +99,14 @@ class PyTok:
         self._manual_captcha_solves = manual_captcha_solves
         self._log_captcha_solves = log_captcha_solves
         self._num_sessions = num_sessions
+        self._user_data_dir = user_data_dir
+        # Merge browser args: use defaults unless explicitly disabled with empty list
+        if browser_args is None:
+            self._browser_args = self._DEFAULT_BROWSER_ARGS.copy()
+        elif browser_args == []:
+            self._browser_args = []
+        else:
+            self._browser_args = self._DEFAULT_BROWSER_ARGS + browser_args
 
         self.logger.setLevel(logging_level)
 
@@ -277,7 +121,7 @@ class PyTok:
         self.request_cache = {}
 
         # Create TikTokApi instance for API requests
-        self.tiktok_api = PatchrightTikTokApi(
+        self.tiktok_api = TikTokApi(
             logging_level=logging_level
         )
 
@@ -286,14 +130,106 @@ class PyTok:
             self._display = Display()
             self._display.start()
 
-        # options = uc.ChromeOptions()
-        # options.add_argument('--ignore-ssl-errors=yes')
-        # options.add_argument('--ignore-certificate-errors')
-        # # options.page_load_strategy = 'eager'
+    # URL patterns we care about - TikTok API and video media
+    _TRACKED_URL_PATTERNS = [
+        '/api/',           # TikTok API endpoints (comments, related videos, etc.)
+        'video/tos',       # TikTok video CDN paths
+        'v16-webapp',      # TikTok video CDN paths
+        'v19-webapp',      # TikTok video CDN paths
+    ]
+
+    def _should_track_url(self, url: str) -> bool:
+        """Check if URL matches patterns we want to track."""
+        return any(pattern in url for pattern in self._TRACKED_URL_PATTERNS)
+
+    def _on_response(self, event: cdp.network.ResponseReceived):
+        """Handle network response events from CDP."""
+        url = event.response.url
+        # Early filter - only track URLs we care about
+        if not self._should_track_url(url):
+            return
+        request_id = event.request_id
+        self._pending_requests[request_id] = {
+            'url': url,
+            'ready': False,
+            'response': event.response
+        }
+
+    def _on_loading_finished(self, event: cdp.network.LoadingFinished):
+        """Handle when response body is ready - schedule immediate fetch."""
+        request_id = event.request_id
+        if request_id not in self._pending_requests:
+            return
+
+        info = self._pending_requests.pop(request_id)
+        # Schedule async fetch - zendriver handlers don't await coroutines
+        asyncio.create_task(self._fetch_response_body(request_id, info))
+
+    async def _fetch_response_body(self, request_id, info):
+        """Fetch response body immediately before Chrome GCs it."""
+        try:
+            result = await self._page.send(cdp.network.get_response_body(request_id))
+            body = result[0] if isinstance(result, tuple) else result.body
+            if body:
+                self._collected_responses.append({
+                    'url': info['url'],
+                    'body': body,
+                    'response': info['response']
+                })
+        except Exception:
+            # Body may not be available (redirects, cached, etc.) - ignore silently
+            pass
+
+    async def process_pending_responses(self, url_pattern=None):
+        """Return collected responses matching the URL pattern."""
+        # Give a moment for any in-flight handlers to complete
+        await asyncio.sleep(0.1)
+
+        results = []
+        remaining = []
+
+        for resp in self._collected_responses:
+            if url_pattern and url_pattern not in resp['url']:
+                remaining.append(resp)
+            else:
+                results.append(resp)
+
+        self._collected_responses = remaining
+        return results
 
     async def __aenter__(self):
-        # Create TikTok-Api sessions
-        # suppress_resource_load_types = ['document', 'stylesheet', 'image', 'media', 'font', 'script', 'textrack', 'xhr', 'fetch', 'eventsource', 'websocket', 'manifest', 'other']
+        # Initialize zendriver state for network response tracking
+        self._pending_requests = {}
+        self._collected_responses = []
+
+        # Create zendriver browser instance for PyTok's scraping
+        self._zendriver_browser = await zd.start(
+            headless=self._headless,
+            user_data_dir=self._user_data_dir,
+            browser_args=self._browser_args if self._browser_args else None,
+        )
+
+        # Get a page and set up network tracking
+        self._page = await self._zendriver_browser.get('about:blank')
+
+        # Enable network tracking via CDP
+        await self._page.send(cdp.network.enable())
+
+        # Set up network event handlers
+        self._page.add_handler(cdp.network.ResponseReceived, self._on_response)
+        self._page.add_handler(cdp.network.LoadingFinished, self._on_loading_finished)
+
+        # Navigate to TikTok (use CDP navigate + wait_for_ready_state to avoid hanging on slow resources)
+        await self._page.send(cdp.page.navigate('https://www.tiktok.com'))
+        await self._page.wait_for_ready_state(until='complete', timeout=10)
+        await asyncio.sleep(3)
+
+        # Get user agent from zendriver page
+        self._user_agent = await self._page.evaluate("navigator.userAgent")
+
+        # Create TikTok-Api sessions - let it use its own Playwright cookies
+        # (passing zendriver's msToken was counterproductive since TikTok-Api
+        # has its own browser session with its own valid msToken)
         suppress_resource_load_types = []
         await self.tiktok_api.create_sessions(
             num_sessions=self._num_sessions,
@@ -302,43 +238,17 @@ class PyTok:
             suppress_resource_load_types=suppress_resource_load_types,
             starting_url='https://www.tiktok.com',
             override_browser_args=[
-                '--disable-backgrouding-occluded-windows',
+                '--disable-backgrounding-occluded-windows',
                 '--disable-renderer-backgrounding',
             ]
         )
 
-        # Use TikTok-Api's browser and playwright, but create a separate context
-        # for PyTok's scraping - this keeps TikTokApi's session untouched for signing
-        self._playwright = self.tiktok_api.playwright
-        self._browser = self.tiktok_api.browser
-        self._context = await self._browser.new_context()
-        self._page = await self._context.new_page()
-        await self._page.goto('https://www.tiktok.com')
-
-        # move mouse to 0, 0 to have known mouse start position
-        await self._page.mouse.move(0, 0)
-
-        self._requests = []
-        self._responses = []
-
-        self._page.on("request", lambda request: self._requests.append(request))
-
-        async def save_responses_and_body(response):
-            self._responses.append(response)
-            try:
-                response._body = await response.body()
-            except Exception:
-                pass
-
-        self._page.on("response", save_responses_and_body)
-
-        self._user_agent = await self._page.evaluate("() => navigator.userAgent")
         self._is_context_manager = True
         return self
 
     async def request_delay(self):
         if self._request_delay is not None:
-            await self._page.wait_for_timeout(self._request_delay * 1000)
+            await asyncio.sleep(self._request_delay)
 
     def __del__(self):
         """A basic cleanup method, called automatically from the code"""
@@ -360,6 +270,13 @@ class PyTok:
 
     async def shutdown(self) -> None:
         try:
+            # Close zendriver browser
+            zendriver_browser = getattr(self, "_zendriver_browser", None)
+            if zendriver_browser:
+                await zendriver_browser.stop()
+        except Exception:
+            pass
+        try:
             # Close TikTok-Api sessions (which closes browser, contexts, and playwright)
             await self.tiktok_api.close_sessions()
         except Exception:
@@ -373,13 +290,313 @@ class PyTok:
     async def __aexit__(self, type, value, traceback):
         await self.shutdown()
 
-    async def get_ms_tokens(self):
-        all_cookies = await self._context.cookies()
+    async def get_ms_tokens(self, retries=3, delay=2):
+        # Use CDP to get cookies from zendriver, with retry logic
         cookie_name = 'msToken'
-        cookies = []
-        for cookie in all_cookies:
-            if cookie["name"] == cookie_name and cookie['secure']:
-                cookies.append(cookie['value'])
-        if len(cookies) == 0:
-            raise Exception(f"Could not find {cookie_name} cookie")
-        return cookies
+        for attempt in range(retries):
+            result = await self._page.send(cdp.network.get_cookies())
+            all_cookies = result
+            cookies = []
+            for cookie in all_cookies:
+                if cookie.name == cookie_name and cookie.secure:
+                    cookies.append(cookie.value)
+            if cookies:
+                return cookies
+            if attempt < retries - 1:
+                self.logger.debug(f"msToken not found, retrying in {delay}s (attempt {attempt + 1}/{retries})")
+                await asyncio.sleep(delay)
+        raise Exception(f"Could not find {cookie_name} cookie after {retries} attempts")
+
+    async def login(
+        self,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        timeout: int = 300,
+        wait_for_input: bool = False
+    ) -> bool:
+        """Log in to TikTok with username/email and password.
+
+        If credentials are provided, attempts automatic login. Otherwise,
+        opens the login page for manual login.
+
+        Note: TikTok often requires additional verification (email/SMS code)
+        after entering credentials. When this happens, the automatic login
+        will fill in the credentials and click the login button, but you'll
+        need to manually complete the verification step in the browser window.
+        The method will wait up to `timeout` seconds for login to complete.
+
+        Parameters
+        ----------
+        username : str, optional
+            TikTok username or email address
+        password : str, optional
+            Account password
+        timeout : int, optional
+            Maximum time in seconds to wait for login completion (default: 300)
+        wait_for_input : bool, optional
+            If True (default), waits for you to press Enter after logging in
+            manually. If False, polls for login cookies until timeout.
+
+        Returns
+        -------
+        bool
+            True if login was successful
+
+        Raises
+        ------
+        TimeoutException
+            If login is not completed within the timeout period
+        LoginException
+            If automatic login fails (e.g., invalid credentials)
+        """
+        if await self._is_logged_in():
+            self.logger.info("Already logged in.")
+            return True
+
+        login_url = 'https://www.tiktok.com/login/phone-or-email/email'
+
+        # Navigate to login page
+        await self._page.send(cdp.page.navigate(login_url))
+        await self._page.wait_for_ready_state(until='complete', timeout=30)
+        await asyncio.sleep(2)
+
+        if username and password:
+            return await self._automatic_login(username, password, timeout)
+        else:
+            return await self._manual_login(timeout, wait_for_input)
+
+    async def _manual_login(self, timeout: int, wait_for_input: bool = False) -> bool:
+        """Wait for user to complete manual login."""
+        self.logger.info("Please complete the login process in the browser window...")
+
+        if wait_for_input:
+            input("Press Enter after you've logged in...")
+            if not await self._is_logged_in():
+                raise LoginException("Login failed - no session cookies found")
+            await self._refresh_api_tokens()
+            self.logger.info("Login complete.")
+            return True
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if await self._is_logged_in():
+                self.logger.info("Login successful!")
+                return True
+            await asyncio.sleep(2)
+
+        raise TimeoutException(f"Login not completed within {timeout} seconds")
+
+    async def _automatic_login(self, username: str, password: str, timeout: int) -> bool:
+        """Perform automatic login with credentials."""
+        self.logger.info("Attempting automatic login...")
+
+        # Find and click username field
+        username_input = await self._find_login_element(
+            'input[name="username"]',
+            'input[placeholder*="Email" i]',
+            'input[placeholder*="Username" i]',
+            'input[type="text"]'
+        )
+        if not username_input:
+            raise LoginException("Could not find username input field")
+
+        self.logger.info("Found username field, entering username...")
+        await username_input.mouse_click()
+        await asyncio.sleep(0.5)
+
+        # Use element's send_keys method
+        await username_input.send_keys(username)
+        await asyncio.sleep(0.5)
+
+        # Find and click password field
+        password_input = await self._find_login_element(
+            'input[name="password"]',
+            'input[type="password"]'
+        )
+        if not password_input:
+            raise LoginException("Could not find password input field")
+
+        self.logger.info("Found password field, entering password...")
+        await password_input.mouse_click()
+        await asyncio.sleep(0.5)
+
+        # Use element's send_keys method
+        await password_input.send_keys(password)
+        await asyncio.sleep(1)
+
+        # Find and click login button using CDP mouse events (most reliable)
+        self.logger.info("Clicking login button...")
+        box = await self._page.evaluate("""
+            (() => {
+                const btn = document.querySelector('button[data-e2e="login-button"]') ||
+                           document.querySelector('button[type="submit"]');
+                if (btn) {
+                    const rect = btn.getBoundingClientRect();
+                    return { x: rect.x + rect.width/2, y: rect.y + rect.height/2 };
+                }
+                return null;
+            })()
+        """)
+        if box:
+            await self._page.send(cdp.input_.dispatch_mouse_event(
+                type_='mousePressed',
+                x=box['x'],
+                y=box['y'],
+                button=cdp.input_.MouseButton.LEFT,
+                click_count=1
+            ))
+            await self._page.send(cdp.input_.dispatch_mouse_event(
+                type_='mouseReleased',
+                x=box['x'],
+                y=box['y'],
+                button=cdp.input_.MouseButton.LEFT,
+                click_count=1
+            ))
+        else:
+            # Fallback: press Enter in password field
+            self.logger.info("Login button not found, pressing Enter...")
+            await password_input.send_keys('\n')
+
+        await asyncio.sleep(3)
+
+        # Handle captcha if it appears
+        await self._handle_login_captcha()
+
+        # Wait for login to complete
+        start_time = time.time()
+        check_count = 0
+        while time.time() - start_time < timeout:
+            check_count += 1
+            # Check for login errors
+            error_message = await self._check_login_error()
+            if error_message:
+                raise LoginException(f"Login failed: {error_message}")
+
+            if await self._is_logged_in():
+                self.logger.info("Login successful!")
+                # Refresh ms_tokens after login
+                await self._refresh_api_tokens()
+                return True
+
+            # Check for captcha again (may appear after initial attempt)
+            await self._handle_login_captcha()
+
+            # Log current URL periodically
+            if check_count % 5 == 0:
+                current_url = self._page.url
+                self.logger.info(f"Waiting for login... current URL: {current_url}")
+
+            await asyncio.sleep(2)
+
+        raise TimeoutException(f"Login not completed within {timeout} seconds")
+
+    async def _find_login_element(self, *selectors):
+        """Try multiple selectors to find a login form element."""
+        for selector in selectors:
+            try:
+                element = await self._page.select(selector, timeout=2)
+                if element:
+                    return element
+            except Exception:
+                continue
+        return None
+
+    async def _handle_login_captcha(self):
+        """Check for and solve captcha during login."""
+        from .api.base import CAPTCHA_TEXTS
+
+        for text in CAPTCHA_TEXTS:
+            try:
+                element = await self._page.find(text, timeout=1)
+                if element:
+                    self.logger.info(f"Captcha detected during login: '{text}'")
+                    if self._manual_captcha_solves:
+                        input("Press Enter after solving the captcha manually...")
+                        await asyncio.sleep(1)
+                        return
+                    # Use the Base class captcha solver
+                    from .api.base import Base
+                    base = Base()
+                    base.parent = self
+                    try:
+                        await base.solve_captcha()
+                        self.logger.info("Captcha solve attempt completed")
+                    except Exception as e:
+                        self.logger.warning(f"Captcha solve failed: {e}")
+                    await asyncio.sleep(2)
+                    return
+            except Exception as e:
+                self.logger.debug(f"Error checking for captcha text '{text}': {e}")
+                continue
+
+    async def _check_login_error(self) -> Optional[str]:
+        """Check for login error messages on the page."""
+        # Look for error messages in specific error containers
+        error_selectors = [
+            '[class*="error" i]',
+            '[class*="alert" i]',
+            '[data-e2e*="error" i]',
+        ]
+        error_texts = [
+            "incorrect password",
+            "invalid username",
+            "account doesn't exist",
+            "too many attempts",
+            "something went wrong",
+            "please check your password",
+        ]
+
+        for selector in error_selectors:
+            try:
+                elements = await self._page.select_all(selector, timeout=0.5)
+                for element in elements:
+                    if hasattr(element, 'text') and element.text:
+                        text_lower = element.text.lower()
+                        for error_text in error_texts:
+                            if error_text in text_lower:
+                                return element.text
+            except Exception:
+                continue
+        return None
+
+    async def _get_cookies_for_playwright(self):
+        """Get all cookies from zendriver in playwright format."""
+        cdp_cookies = await self._page.send(cdp.network.get_cookies())
+        playwright_cookies = []
+        for c in cdp_cookies:
+            cookie = {
+                'name': c.name,
+                'value': c.value,
+                'domain': c.domain,
+                'path': c.path,
+                'httpOnly': c.http_only,
+                'secure': c.secure,
+            }
+            if c.expires:
+                cookie['expires'] = c.expires
+            if c.same_site:
+                cookie['sameSite'] = c.same_site.value.capitalize()
+            playwright_cookies.append(cookie)
+        return playwright_cookies
+
+    async def _refresh_api_tokens(self):
+        """Refresh session cookies for TikTok-Api after login."""
+        try:
+            cookies = await self._get_cookies_for_playwright()
+
+            # Update TikTok-Api sessions with cookies from zendriver
+            # (don't set session.ms_token - let TikTok-Api use its own Playwright cookies)
+            for session in self.tiktok_api.sessions:
+                await self.tiktok_api.set_session_cookies(session, cookies)
+
+            self.logger.debug(f"Refreshed {len(cookies)} cookies after login")
+        except Exception as e:
+            self.logger.warning(f"Failed to refresh API cookies: {e}")
+
+    async def _is_logged_in(self) -> bool:
+        """Check if user is logged in by looking for session cookies."""
+        result = await self._page.send(cdp.network.get_cookies())
+        cookie_names = {cookie.name for cookie in result}
+        # TikTok sets these cookies when logged in
+        login_cookies = {'sessionid', 'sid_tt', 'sessionid_ss'}
+        return bool(cookie_names & login_cookies)

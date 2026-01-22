@@ -9,7 +9,7 @@ from .exceptions import *
 def extract_tag_contents(html):
     if isinstance(html, bytes):
         html = html.decode("utf-8")
-    data_json_match = re.search(r"""<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application\/json">([^\>]+)<\/script>""", html)
+    data_json_match = re.search(r'<script[^>]*id=\"__UNIVERSAL_DATA_FOR_REHYDRATION__\"[^>]*>(.+?)</script>', html)
     if data_json_match:
         return data_json_match.group(1)
     else:

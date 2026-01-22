@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, ClassVar, Optional
 
 import brotli
 import requests
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 if TYPE_CHECKING:
     from ..tiktok import PyTok
@@ -115,19 +114,27 @@ class Video(Base):
         if page.url != url:
             await self.view()
 
-        await self.check_and_resolve_login_popup()
-
-        # get initial html data
-        initial_html_response = self.get_responses(url)[-1]
-        html_body = await self.get_response_body(initial_html_response)
+        # Get video data from page HTML
+        html_body = await page.get_content()
         contents = extract_tag_contents(html_body)
+
+        if not contents:
+            raise exceptions.InvalidJSONException("Could not find data script tag in page")
+
         res = json.loads(contents)
 
-        video_detail = res['__DEFAULT_SCOPE__']['webapp.video-detail']
-        if video_detail['statusCode'] != 0:
+        video_detail = res.get('__DEFAULT_SCOPE__', {}).get('webapp.video-detail', {})
+        if not video_detail:
+            raise exceptions.InvalidJSONException("Could not find video detail in page data")
+
+        if video_detail.get('statusCode') != 0:
             raise exceptions.NotAvailableException(
-                f"Content is not available with status message: {video_detail['statusMsg']}")
-        video_data = video_detail['itemInfo']['itemStruct']
+                f"Content is not available with status message: {video_detail.get('statusMsg', 'Unknown error')}")
+
+        video_data = video_detail.get('itemInfo', {}).get('itemStruct', {})
+        if not video_data:
+            raise exceptions.InvalidJSONException("Could not find video data in page")
+
         return video_data
 
     async def network_info(self, **kwargs) -> dict:
@@ -143,10 +150,18 @@ class Video(Base):
         page = self.parent._page
         if page.url != url:
             await self.view()
-        initial_html_response = self.get_responses(url)[-1]
+
+        responses = self.get_responses(url)
+        if not responses:
+            raise Exception("No responses found for video page")
+
+        resp = responses[-1]
+        cdp_response = resp.get('response')
+
         network_info = {}
-        network_info['server_addr'] = await initial_html_response.server_addr()
-        network_info['headers'] = await initial_html_response.all_headers()
+        if cdp_response:
+            network_info['server_addr'] = getattr(cdp_response, 'remote_ip_address', None)
+            network_info['headers'] = getattr(cdp_response, 'headers', {})
         return network_info
 
     async def bytes_network_info(self, **kwargs) -> dict:
@@ -159,21 +174,19 @@ class Video(Base):
         ```
         """
         play_path = url_parsers.urlparse(self.as_dict['video']['playAddr']).path
-        reqs = self.get_requests(play_path)
-        if len(reqs) == 0:
-            # TODO load page and pull
-            raise Exception("No requests found for video")
-        for req in reqs:
-            try:
-                res = await req.response()
+        responses = self.get_responses(play_path)
+        if not responses:
+            raise Exception("No responses found for video bytes")
+
+        for resp in responses:
+            cdp_response = resp.get('response')
+            if cdp_response:
                 network_info = {}
-                network_info['server_addr'] = await res.server_addr()
-                network_info['headers'] = await res.all_headers()
+                network_info['server_addr'] = getattr(cdp_response, 'remote_ip_address', None)
+                network_info['headers'] = getattr(cdp_response, 'headers', {})
                 return network_info
-            except Exception:
-                continue
-        else:
-            raise Exception("Failed to get video bytes")
+
+        raise Exception("Failed to get video bytes network info")
 
     def _get_url(self) -> str:
         if self.username is not None:
@@ -195,48 +208,39 @@ class Video(Base):
         url = self._get_url()
         if page.url == url:
             return
-        try:
-            async with page.expect_request(url) as event:
-                await page.goto(url)
-                request = await event.value
-                response = await request.response()
-                if response.status >= 300:
-                    raise exceptions.NotAvailableException("Content is not available")
-            # no need to check for captcha, because video data is in the html regardless
-            await self.wait_for_content_or_unavailable('[id="main-content-video_detail"]', 'Video currently unavailable')
-        except exceptions.NotAvailableException as e:
-            # fetch specific error message
-            initial_html_response = self.get_responses(url)[-1]
-            html_body = await self.get_response_body(initial_html_response)
-            contents = extract_tag_contents(html_body)
-            res = json.loads(contents)
 
-            video_detail = res['__DEFAULT_SCOPE__']['webapp.video-detail']
-            raise exceptions.NotAvailableException(f"Content is not available with status message: {video_detail['statusMsg']}")
-        except PlaywrightTimeoutError as e:
-            raise exceptions.TimeoutException(str(e))
+        self.parent.logger.debug(f"Loading video page: {url}")
+        await page.get(url)
+        await asyncio.sleep(5)  # Wait for page to fully load
+
+        # Check for unavailable content
+        await self.wait_for_content_or_unavailable('[id="main-content-video_detail"]', 'Video currently unavailable')
         
     async def _related_videos(self, counter, count=20):
         data_request_path = "api/related/item_list"
-        data_requests = self.get_requests(data_request_path)
-        for req in data_requests:
+        # Process pending responses via CDP
+        responses = await self.parent.process_pending_responses(data_request_path)
+
+        for resp in responses:
             # parse params from url
-            url_parsed = url_parsers.urlparse(req.url)
+            url_parsed = url_parsers.urlparse(resp.get('url', ''))
             params = url_parsers.parse_qs(url_parsed.query)
-            if params['itemID'][0] != self.id:
+            if params.get('itemID', [''])[0] != self.id:
                 continue
-            res = await req.response()
-            if res is None:
+
+            body = resp.get('body', '')
+            if not body:
                 continue
-            body = await res.body()
-            if len(body) == 0:
-                continue
-            d = await res.json()
-            for v in d.get('itemList', []):
-                yield v
-                counter.add(1)
-            if counter.get() >= count:
-                break
+
+            try:
+                d = json.loads(body) if isinstance(body, str) else body
+                for v in d.get('itemList', []):
+                    yield v
+                    counter.add(1)
+                if counter.get() >= count:
+                    break
+            except Exception as e:
+                self.parent.logger.debug(f"Error parsing related videos response: {e}")
 
     async def related_videos(self, count=20) -> list[dict]:
         """
@@ -258,16 +262,24 @@ class Video(Base):
             yield video
 
     async def _related_videos_scraping(self, count=20) -> list[dict]:
+        page = self.parent._page
+        url = self._get_url()
+
+        # Ensure we're on the video page
+        if page.url != url:
+            await self.view()
+
         counter = Counter()
         async for video in self._related_videos(counter, count=count):
             yield video
 
-        # get via scroll
-        # solve captcha if necessary
+        # get via scroll / solve captcha if necessary
         if counter.get() == 0:
             await self.check_and_wait_for_captcha()
-            await self.parent._page.reload()
+            # Reload page using nodriver pattern
+            await page.get(url)
             await asyncio.sleep(5)
+            await self.parent.process_pending_responses()
             async for video in self._related_videos(counter, count=count):
                 yield video
 
@@ -293,9 +305,8 @@ class Video(Base):
         paths = [url_parsers.urlparse(bytes_url).path for bytes_url in bytes_urls]
         resps = [resp for play_path in paths for resp in self.get_responses(play_path)]
         for res in resps:
-            if hasattr(res, '_body'):
-                if len(res._body) > 0:
-                    return res._body
+            if 'body' in res and res['body']:
+                return res['body']
         # if we don't have the bytes in the response, we need to get it from the server
 
         # send the request ourselves
@@ -330,20 +341,30 @@ class Video(Base):
     async def _get_comments_and_req(self, count):
         # get request
         data_request_path = "api/comment/list"
-        data_responses = self.get_responses(data_request_path)
+        # Process pending responses via CDP
+        data_responses = await self.parent.process_pending_responses(data_request_path)
 
         amount_yielded = 0
         all_comments = []
         processed_urls = []
 
-        valid_data_request = None
         for data_response in data_responses:
             try:
-                res = await data_response.json()
+                url = data_response.get('url', '')
+                body = data_response.get('body', '')
 
-                self.parent.request_cache['comments'] = data_response.request
+                if not body:
+                    continue
 
-                processed_urls.append(data_response.url)
+                res = json.loads(body) if isinstance(body, str) else body
+
+                # Store the URL and response info for later use
+                self.parent.request_cache['comments'] = {
+                    'url': url,
+                    'response': data_response.get('response')
+                }
+
+                processed_urls.append(url)
 
                 comments = res.get("comments", [])
 
@@ -371,21 +392,33 @@ class Video(Base):
         num_already_fetched = len(
             comment.get('reply_comment', []) if comment.get('reply_comment', []) is not None else [])
         num_comments_to_fetch = comment['reply_comment_total'] - num_already_fetched
-        while num_comments_to_fetch > 0:
 
-            url_parsed = url_parsers.urlparse(data_request.url)
+        # Get the URL from the cached data
+        cached_url = data_request.get('url', '') if isinstance(data_request, dict) else getattr(data_request, 'url', '')
+
+        while num_comments_to_fetch > 0:
+            url_parsed = url_parsers.urlparse(cached_url)
             params = url_parsers.parse_qs(url_parsed.query)
             params['cursor'] = num_already_fetched
-            del params['aweme_id']
+            if 'aweme_id' in params:
+                del params['aweme_id']
             params['count'] = min(num_comments_to_fetch, batch_size)
             params['item_id'] = comment['aweme_id']
             params['comment_id'] = comment['cid']
             params['focus_state'] = 'true'
             url_path = url_parsed.path.replace("api/comment/list", "api/comment/list/reply")
             next_url = f"{url_parsed.scheme}://{url_parsed.netloc}{url_path}?{url_parsers.urlencode(params, doseq=True)}"
-            cookies = await self.parent._context.cookies()
-            cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-            r = requests.get(next_url, headers=data_request.headers, cookies=cookies)
+
+            # Get cookies via CDP
+            from zendriver import cdp
+            cookie_result = await self.parent._page.send(cdp.network.get_cookies())
+            cookies = {cookie.name: cookie.value for cookie in cookie_result}
+
+            # Get headers from TikTok-Api session
+            _, session = self.parent.tiktok_api._get_session()
+            headers = dict(session.headers)
+
+            r = requests.get(next_url, headers=headers, cookies=cookies)
 
             if not r.content:
                 return
@@ -457,9 +490,9 @@ class Video(Base):
             await self.check_and_wait_for_captcha()
             await self.check_and_close_signin()
 
-            data_responses = self.get_responses(data_request_path)
-            data_responses = [data_response for data_response in data_responses if
-                              data_response.url not in processed_urls]
+            # Process pending responses via CDP
+            data_responses = await self.parent.process_pending_responses(data_request_path)
+            data_responses = [resp for resp in data_responses if resp.get('url', '') not in processed_urls]
 
             if len(data_responses) == 0:
                 if tries > 5:
@@ -469,9 +502,15 @@ class Video(Base):
 
             for data_response in data_responses:
                 try:
-                    res = await data_response.json()
+                    url = data_response.get('url', '')
+                    body = data_response.get('body', '')
 
-                    processed_urls.append(data_response.url)
+                    if not body:
+                        continue
+
+                    res = json.loads(body) if isinstance(body, str) else body
+
+                    processed_urls.append(url)
 
                     comments = res.get("comments", [])
 
@@ -492,16 +531,23 @@ class Video(Base):
                         )
                         return
                 except Exception as e:
-                    processed_urls.append(data_response.url)
+                    processed_urls.append(data_response.get('url', ''))
 
     async def _get_comments_via_requests(self, count, cursor, data_request):
-        ms_tokens = await self.parent.get_ms_tokens()
-        next_url = edit_url(data_request.url, {'count': count, 'cursor': cursor, 'aweme_id': self.id})
-        cookies = await self.parent._context.cookies()
-        cookies = {cookie['name']: cookie['value'] for cookie in cookies}
-        headers = await data_request.all_headers()
-        headers = {k: v for k, v in headers.items() if not k.startswith(':')}
-        headers['referer'] = None
+        # Get the URL from the cached data (can be dict or object)
+        cached_url = data_request.get('url', '') if isinstance(data_request, dict) else getattr(data_request, 'url', '')
+        next_url = edit_url(cached_url, {'count': count, 'cursor': cursor, 'aweme_id': self.id})
+
+        # Get cookies via CDP
+        from zendriver import cdp
+        cookie_result = await self.parent._page.send(cdp.network.get_cookies())
+        cookies = {cookie.name: cookie.value for cookie in cookie_result}
+
+        # Get headers from TikTok-Api session
+        _, session = self.parent.tiktok_api._get_session()
+        headers = dict(session.headers)
+        headers['referer'] = 'https://www.tiktok.com/'
+
         r = requests.get(next_url, headers=headers, cookies=cookies)
 
         if r.status_code != 200:
@@ -519,97 +565,45 @@ class Video(Base):
         return res
 
     async def _get_api_comments(self, count, batch_size, comment_ids):
-
         data_request = self.parent.request_cache['comments']
 
-        try:
-            amount_yielded = 0
-            cursor = 0
-            while amount_yielded < count:
-                # try directly requesting through browser
-                url = edit_url(data_request.url,
-                               {'count': 20, 'cursor': cursor, 'aweme_id': self.id})  # , 'msToken': ms_tokens[-1]})
-                page = self.parent._page
-                async with page.expect_request(url) as event:
-                    await page.goto(url)
-                    request = await event.value
-                    response = await request.response()
-                    if response.status >= 300:
-                        raise exceptions.NotAvailableException("Content is not available")
+        amount_yielded = len(comment_ids)
+        cursor = 0
 
-                if response.status != 200:
-                    raise Exception(f"Failed to get comments with status code {response.status}")
-
-                content = await response.body()
-                if len(content) == 0:
-                    raise Exception("No content in response")
-
-                res = await response.json()
-                cursor = res.get("cursor", 0)
-
-                comments = res.get("comments", [])
-                amount_yielded += len(comments)
-                for comment in comments:
-                    if comment['cid'] not in comment_ids:
-                        try:
-                            await self._get_comment_replies(comment, batch_size)
-                        except Exception:
-                            pass
-                        yield comment
-        except Exception as e:
+        while amount_yielded < count:
             try:
-                # try getting all at once
-                retries = 5
-                for _ in range(retries):
-                    try:
-                        cursor = '0'
-                        res = await self._get_comments_via_requests(count, cursor, data_request)
+                res = await self._get_comments_via_requests(20, cursor, data_request)
 
-                        comments = res.get("comments", [])
-                        for comment in comments:
-                            if comment['cid'] not in comment_ids:
-                                try:
-                                    await self._get_comment_replies(comment, batch_size)
-                                except Exception:
-                                    pass
-                                yield comment
+                if res.get('type') == 'verify':
+                    # force new request for cache
+                    await self._get_comments_and_req(count)
+                    continue
 
-                        return
-                    except Exception as e:
-                        pass
-                else:
-                    logger.debug("Failed to get all comments at once, trying batched...")
-                    raise Exception("Failed to get comments")
-            except Exception as e:
+                cursor = res.get("cursor", 0)
+                comments = res.get("comments", [])
 
-                amount_yielded = len(comment_ids)
-                cursor = 0
-                while amount_yielded < count:
-                    res = await self._get_comments_via_requests(20, cursor, data_request)
-
-                    if res.get('type') == 'verify':
-                        # force new request for cache
-                        self._get_comments_and_req()
-
-                    cursor = res.get("cursor", 0)
-                    comments = res.get("comments", [])
-
-                    if comments:
-                        for comment in comments:
-                            await self._get_comment_replies(comment, batch_size)
-
-                        amount_yielded += len(comments)
-                        for comment in comments:
+                if comments:
+                    for comment in comments:
+                        if comment['cid'] not in comment_ids:
+                            try:
+                                await self._get_comment_replies(comment, batch_size)
+                            except Exception:
+                                pass
                             yield comment
+                            amount_yielded += 1
 
-                    has_more = res.get("has_more")
-                    if has_more != 1:
-                        self.parent.logger.info(
-                            "TikTok isn't sending more TikToks beyond this point."
-                        )
-                        return
+                has_more = res.get("has_more")
+                if has_more != 1:
+                    self.parent.logger.info(
+                        "TikTok isn't sending more TikToks beyond this point."
+                    )
+                    return
 
-                    await self.parent.request_delay()
+                await self.parent.request_delay()
+
+            except Exception as e:
+                self.parent.logger.debug(f"Error getting comments via API: {e}")
+                raise exceptions.ApiFailedException(f"Failed to get comments: {e}")
 
     def __extract_from_data(self) -> None:
         data = self.as_dict

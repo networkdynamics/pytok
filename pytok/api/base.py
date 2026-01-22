@@ -1,226 +1,279 @@
 import asyncio
 from datetime import datetime
+import json
 import random
-
-from patchright.async_api import expect, Page
 
 from .. import exceptions, captcha_solver
 
 TOK_DELAY = 20
 CAPTCHA_DELAY = 999999
 
+# Text patterns for detecting various page states
+CAPTCHA_TEXTS = [
+    'Rotate the shapes',
+    'Verify to continue:',
+    'Click on the shapes with the same size',
+    'Drag the slider to fit the puzzle'
+]
 
-def get_login_close_element(page):
-    return page.get_by_text("Continue as guest", exact=True) \
-        .or_(page.get_by_text("Continue without login", exact=True))
-
-
-def get_captcha_element(page):
-    return page.get_by_text('Rotate the shapes', exact=True) \
-        .or_(page.get_by_text('Verify to continue:', exact=True)) \
-        .or_(page.get_by_text('Click on the shapes with the same size', exact=True)) \
-        .or_(page.get_by_text('Drag the slider to fit the puzzle', exact=True))
+LOGIN_CLOSE_TEXTS = [
+    "Continue as guest",
+    "Continue without login"
+]
 
 
 class Base:
 
+    async def _find_element_by_selector(self, selector, timeout=5):
+        """Find element by CSS selector, returns None if not found."""
+        page = self.parent._page
+        try:
+            element = await page.select(selector, timeout=timeout)
+            return element
+        except Exception:
+            return None
+
+    async def _find_element_by_text(self, text, timeout=5):
+        """Find element containing text, returns None if not found."""
+        page = self.parent._page
+        try:
+            element = await page.find(text, timeout=timeout)
+            return element
+        except Exception:
+            return None
+
+    async def _is_text_visible(self, text):
+        """Check if text is visible on the page."""
+        page = self.parent._page
+        try:
+            element = await page.find(text, timeout=1)
+            return element is not None
+        except Exception:
+            return False
+
+    async def _find_p_element_by_text(self, text, timeout=5):
+        """Find a p element containing the specified text, returns None if not found."""
+        page = self.parent._page
+        try:
+            p_elements = await page.select_all('p', timeout=timeout)
+            for p in p_elements:
+                if hasattr(p, 'text') and p.text and text in p.text:
+                    return p
+            return None
+        except Exception:
+            return None
+
+    async def _is_selector_visible(self, selector):
+        """Check if selector is visible on the page."""
+        try:
+            element = await self._find_element_by_selector(selector, timeout=1)
+            return element is not None
+        except Exception:
+            return False
+
+    async def _is_captcha_visible(self):
+        """Check if any captcha text is visible."""
+        for text in CAPTCHA_TEXTS:
+            if await self._is_text_visible(text):
+                return True
+        return False
+
     async def check_initial_call(self, url):
-        event = await self.wait_for_requests(url)
-        response = await event.value.response()
-        if response.status >= 300:
-            raise exceptions.NotAvailableException("Content is not available")
+        # For zendriver, we check responses via CDP - wait a bit for navigation
+        await asyncio.sleep(2)
+        responses = await self.parent.process_pending_responses(url)
+        for resp in responses:
+            status = resp.get('response', {})
+            if hasattr(status, 'status') and status.status >= 300:
+                raise exceptions.NotAvailableException("Content is not available")
 
     async def wait_for_content_or_captcha(self, content_tag):
         page = self.parent._page
 
-        content_element = page.locator(content_tag).first
-        # content_element = page.get_by_text('Videos', exact=True)
-        captcha_element = get_captcha_element(page)
-        
         max_tries = 10
         tries = 0
         self.parent.logger.debug("Waiting for main content to become visible")
         while tries < max_tries:
-            is_content_visible = await content_element.is_visible()
-            is_captcha_visible = await captcha_element.is_visible()
+            is_content_visible = await self._is_selector_visible(content_tag)
+            is_captcha_visible = await self._is_captcha_visible()
             if is_content_visible or is_captcha_visible:
                 break
             await asyncio.sleep(0.5)
             await self.check_and_resolve_refresh_button()
             tries += 1
 
-        captcha_visible = await captcha_element.is_visible()
-        if captcha_visible:
+        if await self._is_captcha_visible():
             await self.solve_captcha()
-            asyncio.sleep(1)
-            await expect(content_element).to_be_visible(timeout=TOK_DELAY * 1000)
+            await asyncio.sleep(1)
+            # Wait for content after captcha
+            for _ in range(TOK_DELAY * 2):
+                if await self._is_selector_visible(content_tag):
+                    break
+                await asyncio.sleep(0.5)
 
-        return content_element
-    
+        return await self._find_element_by_selector(content_tag, timeout=1)
+
     async def wait_for_content_or_unavailable(self, content_tag, unavailable_text, no_content_text=None):
-        page: Page = self.parent._page
-        content_element = page.locator(content_tag).first
-        captcha_element = get_captcha_element(page)
-        unavailable_element = page.get_by_text(unavailable_text, exact=True)
+        if await self._find_element_by_selector(content_tag):
+            return await self._find_element_by_selector(content_tag, timeout=1)
 
-        # try:
-        expected_elements = content_element.or_(captcha_element).or_(unavailable_element)
-
-        def add_no_content_text(expected_es, text):
-            if no_content_text:
-                if isinstance(no_content_text, list):
-                    for text in no_content_text:
-                        expected_es = expected_es.or_(page.get_by_text(text, exact=True))
-                elif isinstance(no_content_text, str):
-                    expected_es = expected_es.or_(page.get_by_text(no_content_text, exact=True))
-            return expected_es
-        expected_elements = add_no_content_text(expected_elements, no_content_text)
+        page = self.parent._page
 
         await self.check_and_resolve_refresh_button()
         await self.check_and_resolve_login_popup()
 
         self.parent.logger.debug(f"Checking for '{unavailable_text}'")
-        if await unavailable_element.is_visible():
+        if await self._is_text_visible(unavailable_text):
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
-        
+
         if no_content_text:
-            if isinstance(no_content_text, list):
-                for text in no_content_text:
-                    no_content_element = page.get_by_text(text, exact=True)
-                    if await no_content_element.is_visible():
-                        raise exceptions.NoContentException(f"Content is not available with message: '{text}'")
-                    else:
-                        self.parent.logger.debug(f"Could not find text '{text}'")
-            elif isinstance(no_content_text, str):
-                no_content_element = page.get_by_text(no_content_text, exact=True)
-                if await no_content_element.is_visible():
-                    raise exceptions.NoContentException(f"Content is not available with message: '{no_content_text}'")
+            texts = no_content_text if isinstance(no_content_text, list) else [no_content_text]
+            for text in texts:
+                if await self._is_text_visible(text):
+                    raise exceptions.NoContentException(f"Content is not available with message: '{text}'")
                 else:
                     self.parent.logger.debug(f"Could not find text '{text}'")
 
         max_tries = 10
         tries = 0
         self.parent.logger.debug("Waiting for main content to become visible")
-        while not (await content_element.is_visible()) and tries < max_tries:
+        while not (await self._is_selector_visible(content_tag)) and tries < max_tries:
             await asyncio.sleep(0.5)
             await self.check_and_resolve_refresh_button()
             tries += 1
-        
+
         if tries >= max_tries:
             # try some other behaviour
-            url = page.url
-            await page.goto("https://www.tiktok.com")
+            current_url = page.url
+            await page.get("https://www.tiktok.com")
             await asyncio.sleep(5)
-            await page.goto(url)
+            await page.get(current_url)
 
-        return content_element
+        return await self._find_element_by_selector(content_tag, timeout=1)
 
     async def check_and_resolve_refresh_button(self):
-        page: Page = self.parent._page
-        refresh_button = page.get_by_text('Refresh')
+        page = self.parent._page
         self.parent.logger.debug("Checking for refresh button")
-        if await refresh_button.is_visible():
-            self.parent.logger.debug("Refresh button found, clicking")
-            await refresh_button.click(timeout=5000, force=True)
-            await asyncio.sleep(1)
-
+        try:
+            refresh_button = await self._find_element_by_text('Refresh', timeout=1)
+            if refresh_button:
+                self.parent.logger.debug("Refresh button found, clicking")
+                await refresh_button.click()
+                await asyncio.sleep(1)
+        except Exception:
+            pass
 
     async def check_and_resolve_login_popup(self):
-        page: Page = self.parent._page
-        login_popup = page.get_by_text('Log in to TikTok')
+        page = self.parent._page
         self.parent.logger.debug("Checking for login to TikTok pop up")
-        if await login_popup.is_visible():
-            self.parent.logger.debug("Login prompt found, checking for close button")
-            login_close = page.locator('[data-e2e="modal-close-inner-button"]')
-            if await login_close.is_visible():
-                await login_close.click()
-                await asyncio.sleep(1)
-            else:
-                raise exceptions.NotAvailableException(f"Content is not available with message: 'Log in to TikTok'")
+        try:
+            login_popup = await page.find('Log in to TikTok', timeout=1)
+            if login_popup:
+                self.parent.logger.debug("Login prompt found, checking for close button")
+                # Try multiple selectors for the close button
+                close_selectors = [
+                    '[data-e2e="modal-close-inner-button"]',
+                    '[class*="close"]',
+                    'button[aria-label="Close"]',
+                    'svg[class*="close"]',
+                ]
+                closed = False
+                for selector in close_selectors:
+                    try:
+                        login_close = await page.select(selector, timeout=1)
+                        if login_close:
+                            await login_close.click()
+                            await asyncio.sleep(1)
+                            closed = True
+                            self.parent.logger.debug(f"Closed login popup with selector: {selector}")
+                            break
+                    except Exception:
+                        continue
+
+                if not closed:
+                    # Try pressing Escape key to close the modal
+                    try:
+                        await page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
+                        await asyncio.sleep(1)
+                        self.parent.logger.debug("Closed login popup with Escape key")
+                    except Exception:
+                        # If we can't close it, just continue - the user might still be able to use the page
+                        self.parent.logger.debug("Could not close login popup, continuing anyway")
+        except Exception as e:
+            self.parent.logger.debug(f"Error checking login popup: {e}")
 
 
     async def wait_for_content_or_unavailable_or_captcha(self, content_tag, unavailable_text, no_content_text=None):
-        page: Page = self.parent._page
-        content_element = page.locator(content_tag).first
-        captcha_element = get_captcha_element(page)
-        unavailable_element = page.get_by_text(unavailable_text, exact=True)
-
-        # try:
-        expected_elements = content_element.or_(captcha_element).or_(unavailable_element)
-
-        def add_no_content_text(expected_es, text):
-            if no_content_text:
-                if isinstance(no_content_text, list):
-                    for text in no_content_text:
-                        expected_es = expected_es.or_(page.get_by_text(text, exact=True))
-                elif isinstance(no_content_text, str):
-                    expected_es = expected_es.or_(page.get_by_text(no_content_text, exact=True))
-            return expected_es
-        expected_elements = add_no_content_text(expected_elements, no_content_text)
+        if await self._is_selector_visible(content_tag):
+            return await self._find_element_by_selector(content_tag, timeout=1)
 
         await self.check_and_resolve_refresh_button()
         await self.check_and_resolve_login_popup()
 
-        # await expect(expected_elements).to_be_visible(
-        #     timeout=TOK_DELAY * 1000)
-
         self.parent.logger.debug("Checking for captcha")
-        if await captcha_element.is_visible():
+        if await self._is_captcha_visible():
             self.parent.logger.debug("Captcha found")
             await self.solve_captcha()
             await asyncio.sleep(1)
-            if await captcha_element.is_visible():
+            if await self._is_captcha_visible():
                 raise exceptions.CaptchaException("Captcha is still visible after solving")
-            expected_elements = content_element.or_(unavailable_element)
-            expected_elements = add_no_content_text(expected_elements, no_content_text)
-            await expect(expected_elements).to_be_visible(
-                timeout=TOK_DELAY * 1000)  # waits TOK_DELAY seconds and launches new browser instance
+            # Wait for content or unavailable after captcha
+            for _ in range(TOK_DELAY * 2):
+                if await self._is_selector_visible(content_tag):
+                    break
+                if await self._is_text_visible(unavailable_text):
+                    break
+                await asyncio.sleep(0.5)
 
         # check after resolving captcha
         await self.check_and_resolve_refresh_button()
         await self.check_and_resolve_login_popup()
 
         self.parent.logger.debug(f"Checking for '{unavailable_text}'")
-        if await unavailable_element.is_visible():
+        if await self._find_p_element_by_text(unavailable_text):
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
-        
+
         if no_content_text:
-            if isinstance(no_content_text, list):
-                for text in no_content_text:
-                    no_content_element = page.get_by_text(text, exact=True)
-                    if await no_content_element.is_visible():
-                        raise exceptions.NoContentException(f"Content is not available with message: '{text}'")
-                    else:
-                        self.parent.logger.debug(f"Could not find text '{text}'")
-            elif isinstance(no_content_text, str):
-                no_content_element = page.get_by_text(no_content_text, exact=True)
-                if await no_content_element.is_visible():
-                    raise exceptions.NoContentException(f"Content is not available with message: '{no_content_text}'")
+            texts = no_content_text if isinstance(no_content_text, list) else [no_content_text]
+            for text in texts:
+                if await self._find_p_element_by_text(text):
+                    raise exceptions.NoContentException(f"Content is not available with message: '{text}'")
                 else:
                     self.parent.logger.debug(f"Could not find text '{text}'")
 
-        max_tries = 10
+        max_tries = 3
         tries = 0
         self.parent.logger.debug("Waiting for main content to become visible")
-        content_is_visible = await content_element.is_visible()
+        content_is_visible = await self._is_selector_visible(content_tag)
         while not content_is_visible and tries < max_tries:
             await asyncio.sleep(1)
             await self.check_and_resolve_refresh_button()
             tries += 1
-            content_is_visible = await content_element.is_visible()
-        
-        if tries >= max_tries:
-            pass
-            # raise exceptions.TimeoutException(f"Content is not available for unknown reason")
+            if await self._is_selector_visible(content_tag):
+                return
+            
+        # now try some other behaviour
+        page = self.parent._page
+        current_url = page.url
+        await page.get("https://www.tiktok.com")
+        await asyncio.sleep(3)
 
-        return content_element
+        # do some scrolling
+        for _ in range(3):
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+            await asyncio.sleep(2)
+
+        await page.get(current_url)
+
+        if await self._is_selector_visible(content_tag):
+            return await self._find_element_by_selector(content_tag, timeout=1)
+        else:
+            raise exceptions.TimeoutException("Content did not become visible in time")
 
     async def check_for_unavailable_or_captcha(self, unavailable_text):
         page = self.parent._page
-        captcha_element = get_captcha_element(page)
-        unavailable_element = page.get_by_text(unavailable_text, exact=True)
 
-        captcha_visible = await captcha_element.is_visible()
+        captcha_visible = await self._is_captcha_visible()
         if captcha_visible:
             num_tries = 0
             max_tries = 3
@@ -230,7 +283,7 @@ class Base:
                 try:
                     await self.solve_captcha()
                     await asyncio.sleep(1)
-                    captcha_is_visible = await captcha_element.is_visible()
+                    captcha_is_visible = await self._is_captcha_visible()
                     if captcha_is_visible:
                         captcha_exceptions.append(exceptions.CaptchaException("Captcha is still visible after solving"))
                         continue
@@ -242,69 +295,79 @@ class Base:
                 print(
                     f"Failed to solve captcha after {max_tries} tries with errors: {captcha_exceptions}, continuing anyway...")
 
-        login_element = get_login_close_element(page)
-        login_visible = await login_element.is_visible()
-        if login_visible:
+        # Check for login close buttons
+        for login_text in LOGIN_CLOSE_TEXTS:
             try:
-                login_close = get_login_close_element(page)
-                login_close_visible = await login_close.is_visible()
-                if login_close_visible:
-                    await login_close.click()
+                login_element = await page.find(login_text, timeout=1)
+                if login_element:
+                    await login_element.click()
+                    break
             except Exception as e:
                 print(f"Failed to close login with error: {e}, continuing anyway...")
 
-        if await unavailable_element.is_visible():
+        if await self._is_text_visible(unavailable_text):
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
 
     async def check_for_unavailable(self, unavailable_text):
-        page = self.parent._page
-        unavailable_element = page.get_by_text(unavailable_text, exact=True)
-        if await unavailable_element.is_visible():
+        if await self._is_text_visible(unavailable_text):
             raise exceptions.NotAvailableException(f"Content is not available with message: '{unavailable_text}'")
 
     async def check_for_reload_button(self):
-        page = self.parent._page
-        reload_button = page.get_by_text('Refresh', exact=True)
-        if await reload_button.is_visible():
-            await reload_button.click()
+        try:
+            reload_button = await self._find_element_by_text('Refresh', timeout=1)
+            if reload_button:
+                await reload_button.click()
+        except Exception:
+            pass
 
     async def wait_for_requests(self, api_path, timeout=TOK_DELAY):
-        page = self.parent._page
-        try:
-            async with page.expect_request(api_path, timeout=timeout * 1000) as first:
-                return await first.value
-        except Exception as e:
-            raise exceptions.TimeoutException(str(e))
+        # With zendriver, we use CDP events - wait and process
+        for _ in range(timeout * 2):
+            responses = await self.parent.process_pending_responses(api_path)
+            if responses:
+                return responses[0]
+            await asyncio.sleep(0.5)
+        raise exceptions.TimeoutException(f"Timeout waiting for request: {api_path}")
 
     def get_requests(self, api_path):
-        """searches a list of all requests thus far issued by the Playwright browser instance"""
-        return [request for request in self.parent._requests if api_path in request.url]
+        """Get pending requests matching the API path from CDP tracking."""
+        return [
+            info for info in self.parent._pending_requests.values()
+            if api_path in info.get('url', '')
+        ]
 
     def get_responses(self, api_path):
-        return [response for response in self.parent._responses if api_path in response.url]
+        """Get collected responses matching the API path."""
+        return [
+            resp for resp in self.parent._collected_responses
+            if api_path in resp.get('url', '')
+        ]
 
     async def get_response_body(self, response):
-        return await response.body()
+        """Get the body from a response dict."""
+        if isinstance(response, dict):
+            return response.get('body', b'')
+        return b''
 
     async def scroll_to_bottom(self, speed=4):
         page = self.parent._page
         current_scroll_position = await page.evaluate(
-            "() => document.documentElement.scrollTop || document.body.scrollTop;")
+            "document.documentElement.scrollTop || document.body.scrollTop")
         new_height = current_scroll_position + 1
         while current_scroll_position <= new_height:
             current_scroll_position += speed + random.randint(-speed, speed)
-            await page.evaluate(f"() => window.scrollTo(0, {current_scroll_position});")
-            new_height = await page.evaluate("() => document.body.scrollHeight;")
+            await page.evaluate(f"window.scrollTo(0, {current_scroll_position})")
+            new_height = await page.evaluate("document.body.scrollHeight")
 
     async def scroll_to(self, position, speed=5):
         page = self.parent._page
         current_scroll_position = await page.evaluate(
-            "() => document.documentElement.scrollTop || document.body.scrollTop;")
+            "document.documentElement.scrollTop || document.body.scrollTop")
         new_height = current_scroll_position + 1
         while current_scroll_position <= new_height:
             current_scroll_position += speed + random.randint(-speed, speed)
-            await page.evaluate(f"() => window.scrollTo(0, {current_scroll_position});")
-            new_height = await page.evaluate("() => document.body.scrollHeight;")
+            await page.evaluate(f"window.scrollTo(0, {current_scroll_position})")
+            new_height = await page.evaluate("document.body.scrollHeight")
             if current_scroll_position > position:
                 break
 
@@ -314,19 +377,19 @@ class Base:
         current_scroll = 0
         while current_scroll > desired_scroll:
             current_scroll -= speed + random.randint(-speed, speed)
-            await page.evaluate(f"() => window.scrollBy(0, {-speed});")
+            await page.evaluate(f"window.scrollBy(0, {-speed})")
 
     async def scroll_down(self, amount, speed=4):
         page = self.parent._page
-        
+
         current_scroll_position = await page.evaluate(
-            "() => document.documentElement.scrollTop || document.body.scrollTop;")
+            "document.documentElement.scrollTop || document.body.scrollTop")
         desired_position = current_scroll_position + amount
         while current_scroll_position < desired_position:
             scroll_amount = speed + random.randint(-speed, speed) * 0.5
-            await page.evaluate(f"() => window.scrollBy(0, {scroll_amount});")
+            await page.evaluate(f"window.scrollBy(0, {scroll_amount})")
             new_scroll_position = await page.evaluate(
-            "() => document.documentElement.scrollTop || document.body.scrollTop;")
+                "document.documentElement.scrollTop || document.body.scrollTop")
             if new_scroll_position > current_scroll_position:
                 current_scroll_position = new_scroll_position
             else:
@@ -335,99 +398,106 @@ class Base:
 
     async def wait_until_not_skeleton_or_captcha(self, skeleton_tag):
         page = self.parent._page
-        content = page.locator(f'[data-e2e={skeleton_tag}]')
-        try:
-            await expect(content).not_to_be_visible()
-        except TimeoutError as e:
-            captcha_element = get_captcha_element(page)
-            if await captcha_element.is_visible():
-                await self.solve_captcha()
-                asyncio.sleep(1)
-            else:
-                raise exceptions.TimeoutException(str(e))
+        selector = f'[data-e2e={skeleton_tag}]'
+        # Wait for skeleton to disappear
+        for _ in range(TOK_DELAY * 2):
+            if not await self._is_selector_visible(selector):
+                return
+            await asyncio.sleep(0.5)
+
+        # Check if captcha appeared
+        if await self._is_captcha_visible():
+            await self.solve_captcha()
+            await asyncio.sleep(1)
+        else:
+            raise exceptions.TimeoutException(f"Skeleton element still visible: {skeleton_tag}")
 
     async def check_and_wait_for_captcha(self):
-        page = self.parent._page
-        captcha_element = get_captcha_element(page)
-        captcha_visible = await captcha_element.is_visible()
-        if captcha_visible:
+        if await self._is_captcha_visible():
             await self.solve_captcha()
             await asyncio.sleep(1)
 
     async def check_and_close_signin(self):
         page = self.parent._page
-        signin_element = get_login_close_element(page)
-        signin_visible = await signin_element.is_visible()
-        if signin_visible:
-            await signin_element.click()
+        for login_text in LOGIN_CLOSE_TEXTS:
+            try:
+                signin_element = await page.find(login_text, timeout=1)
+                if signin_element:
+                    await signin_element.click()
+                    return
+            except Exception:
+                pass
 
     async def solve_captcha(self):
         if self.parent._manual_captcha_solves:
             input("Press Enter to continue after solving CAPTCHA:")
             await asyncio.sleep(1)
             if self.parent._log_captcha_solves:
-                request = self.get_requests('/captcha/verify')[0]
-                body = request.post_data
-                with open(f"manual_captcha_{datetime.now().isoformat()}.json", "w") as f:
-                    f.write(body)
+                requests = self.get_requests('/captcha/verify')
+                if requests:
+                    body = requests[0].get('body', '')
+                    with open(f"manual_captcha_{datetime.now().isoformat()}.json", "w") as f:
+                        f.write(body)
             return
-        """
-        this method not only calculates the CAPTCHA solution but also POSTs it to TikTok's server.
-        """
-        # get captcha data
-        request = self.get_requests('/captcha/get')[0]
-        captcha_response = await request.response()
-        if captcha_response is not None:
-            captcha_json = await captcha_response.json()
-        else:
-            raise exceptions.EmptyResponseException
+
+        # Get captcha data from CDP responses
+        captcha_responses = await self.parent.process_pending_responses('/captcha/get')
+        if not captcha_responses:
+            raise exceptions.EmptyResponseException("No captcha response found")
+
+        captcha_body = captcha_responses[0].get('body', '')
+        if not captcha_body:
+            raise exceptions.EmptyResponseException("Empty captcha response body")
+
+        captcha_json = json.loads(captcha_body)
 
         if 'mode' in captcha_json['data']:
             captcha_data = captcha_json['data']
         elif 'challenges' in captcha_json['data']:
             captcha_data = captcha_json['data']['challenges'][0]
+        else:
+            raise exceptions.CaptchaException("Unknown captcha data format")
+
         captcha_type = captcha_data['mode']
         if captcha_type not in ['slide', 'whirl']:
             raise exceptions.CaptchaException(f"Unsupported captcha type: {captcha_type}")
 
-        """
-        captcha_data['question']['url1'] is a URL from TikTok's content delivery network. If you copy-paste it into your
-        web browser, you should GET the puzzle image. puzzle_response is the full response from the server, and
-        puzzle is the image itself, returned as a sequence of bytes.
-        """
-        puzzle_req = self.get_requests(captcha_data['question']['url1'])[0]
-        puzzle_response = await puzzle_req.response()
-        puzzle = await puzzle_response.body()
+        # Get puzzle image from CDP responses
+        puzzle_url = captcha_data['question']['url1']
+        puzzle_responses = await self.parent.process_pending_responses(puzzle_url)
+        if not puzzle_responses:
+            raise exceptions.CaptchaException("Puzzle was not found in response")
+        puzzle = puzzle_responses[0].get('body', b'')
+        if isinstance(puzzle, str):
+            puzzle = puzzle.encode()
 
         if not puzzle:
             raise exceptions.CaptchaException("Puzzle was not found in response")
 
-        """
-        captcha_data['question']['url2'] is a URL from TikTok's content delivery network. If you copy-paste it into your
-        web browser, you should GET the puzzle piece that has to be moved to the correct position in the puzzle. 
-        piece_response: the full Playwright/HTTP response object
-        piece: the image of the puzzle piece, returned as a sequence of bytes
-        """
-        piece_req = self.get_requests(captcha_data['question']['url2'])[0]
-        piece_response = await piece_req.response()
-        piece = await piece_response.body()
+        # Get puzzle piece image from CDP responses
+        piece_url = captcha_data['question']['url2']
+        piece_responses = await self.parent.process_pending_responses(piece_url)
+        if not piece_responses:
+            raise exceptions.CaptchaException("Piece was not found in response")
+        piece = piece_responses[0].get('body', b'')
+        if isinstance(piece, str):
+            piece = piece.encode()
 
         if not piece:
             raise exceptions.CaptchaException("Piece was not found in response")
 
-        """
-        -at this point in the code you have the puzzle image (puzzle) and the piece image (piece)
-        -now a local CAPTCHA solver will decide how to place the piece in the puzzle
-        -finally, the solution will be POSTed to TikTok, and the server's response will be obtained
-        """
+        # Solve captcha using the solver
         page = self.parent._page
-        solver = captcha_solver.CaptchaSolver(captcha_response, puzzle, piece, page=page)
-        solve = await solver.solve_and_drag()
+        # Create a response-like object for the captcha solver
+        captcha_response_obj = type('Response', (), {'json': lambda: captcha_json})()
+        solver = captcha_solver.CaptchaSolver(captcha_response_obj, puzzle, piece, page=page)
+        await solver.solve_and_drag()
 
         if self.parent._log_captcha_solves:
             await asyncio.sleep(1)
-            request = self.get_requests('/captcha/verify')[0]
-            body = request.post_data
-            with open(f"automated_captcha_{datetime.now().isoformat()}.json", "w") as f:
-                f.write(body)
+            verify_responses = await self.parent.process_pending_responses('/captcha/verify')
+            if verify_responses:
+                body = verify_responses[0].get('body', '')
+                with open(f"automated_captcha_{datetime.now().isoformat()}.json", "w") as f:
+                    f.write(body)
 

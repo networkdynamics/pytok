@@ -5,6 +5,6 @@ opencv-python
 brotli
 pandas
 tqdm
-patchright
 pyclick
 TikTokApi
+zendriver

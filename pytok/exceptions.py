@@ -42,3 +42,6 @@ class FewerVideosThanExpectedException(TikTokException):
 
 class AccountPrivateException(TikTokException):
     """This TikTok account is private and cannot be scraped"""
+
+class LoginException(TikTokException):
+    """TikTok requires login to view this content"""

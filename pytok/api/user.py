@@ -252,6 +252,7 @@ class User(Base):
                 'secUid': self.sec_uid,
                 'count': 35,
                 'cursor': cursor,
+                'coverFormat': 2,  # Browser sends this parameter
             }
 
             self.parent.logger.debug(f"Making TikTok-Api request with cursor={cursor}")

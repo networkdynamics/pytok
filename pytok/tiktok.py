@@ -18,8 +18,96 @@ from proxyproviders.algorithms import Algorithm
 import zendriver as zd
 from zendriver import cdp
 
+import random
+
 from TikTokApi import TikTokApi
+from TikTokApi.tiktok import TikTokPlaywrightSession
 from TikTokApi.helpers import random_choice
+
+
+class PatchedTikTokApi(TikTokApi):
+    """TikTokApi subclass with updated session params to match browser behavior."""
+
+    async def _TikTokApi__set_session_params(self, session: TikTokPlaywrightSession):
+        """Override session params to match what browser actually sends."""
+        user_agent = await session.page.evaluate("() => navigator.userAgent")
+        language = await session.page.evaluate(
+            "() => navigator.language || navigator.userLanguage"
+        )
+        platform = await session.page.evaluate("() => navigator.platform")
+        device_id = str(random.randint(10**18, 10**19 - 1))
+        odin_id = str(random.randint(10**18, 10**19 - 1))
+        history_len = str(random.randint(1, 10))
+        screen_height = str(random.randint(600, 1080))
+        screen_width = str(random.randint(800, 1920))
+        web_id_last_time = str(int(time.time()))
+        timezone = await session.page.evaluate(
+            "() => Intl.DateTimeFormat().resolvedOptions().timeZone"
+        )
+
+        browser_version = await session.page.evaluate(
+            "() => navigator.appVersion"
+        )
+
+        os_name = platform.lower().split()[0] if platform else "windows"
+
+        session_params = {
+            "WebIdLastTime": web_id_last_time,
+            "aid": "1988",
+            "app_language": language,
+            "app_name": "tiktok_web",
+            "browser_language": language,
+            "browser_name": "Mozilla",
+            "browser_online": "true",
+            "browser_platform": platform,
+            "browser_version": browser_version,
+            "channel": "tiktok_web",
+            "cookie_enabled": "true",
+            "data_collection_enabled": "false",
+            "device_id": device_id,
+            "device_platform": "web_pc",
+            "focus_state": "true",
+            "from_page": "user",
+            "history_len": history_len,
+            "is_fullscreen": "false",
+            "is_page_visible": "true",
+            "language": language,
+            "odinId": odin_id,
+            "os": os_name,
+            "region": "US",
+            "screen_height": screen_height,
+            "screen_width": screen_width,
+            "tz_name": timezone,
+            "user_is_login": "false",
+            "video_encoding": "mp4",
+            "webcast_language": language,
+        }
+        session.params = session_params
+
+    async def sign_url(self, url: str, **kwargs):
+        """Sign a url with X-Bogus and X-Gnarly parameters."""
+        try:
+            i, session = await self._get_valid_session_index(**kwargs)
+        except Exception:
+            i, session = self._get_session(**kwargs)
+
+        sign_result = await self.generate_x_bogus(url, session_index=i)
+
+        x_bogus = sign_result.get("X-Bogus")
+        if x_bogus is None:
+            raise Exception("Failed to generate X-Bogus")
+
+        if "?" in url:
+            url += "&"
+        else:
+            url += "?"
+        url += f"X-Bogus={x_bogus}"
+
+        x_gnarly = sign_result.get("X-Gnarly")
+        if x_gnarly:
+            url += f"&X-Gnarly={x_gnarly}"
+
+        return url
 
 from .api.sound import Sound
 from .api.user import User
@@ -120,8 +208,8 @@ class PyTok:
 
         self.request_cache = {}
 
-        # Create TikTokApi instance for API requests
-        self.tiktok_api = TikTokApi(
+        # Create TikTokApi instance for API requests (using patched version)
+        self.tiktok_api = PatchedTikTokApi(
             logging_level=logging_level
         )
 

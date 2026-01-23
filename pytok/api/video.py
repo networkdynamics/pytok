@@ -308,6 +308,7 @@ class Video(Base):
             if 'body' in res and res['body']:
                 return res['body']
         # if we don't have the bytes in the response, we need to get it from the server
+        logging.debug("Video bytes not found in cached responses, making direct requests to fetch bytes")
 
         # send the request ourselves
         req_exceptions = []

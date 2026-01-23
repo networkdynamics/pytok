@@ -1,14 +1,43 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-authors:
-- family-names: "Steel"
-  given-names: "Ben"
-  orcid: "https://orcid.org/0009-0006-3845-1394"
-- family-names: "Abrahams"
-  given-names: "Alexei"
-  orcid: "https://orcid.org/0000-0002-6547-072X"
+type: software
 title: "PyTok"
-version: 0.1.0
+authors:
+  - family-names: "Steel"
+    given-names: "Ben"
+    orcid: "https://orcid.org/0009-0006-3845-1394"
+  - family-names: "Abrahams"
+    given-names: "Alexei"
+    orcid: "https://orcid.org/0000-0002-6547-072X"
+version: 0.0.2
 doi: 10.5281/zenodo.12802714
 date-released: 2024-07-23
 url: "https://github.com/networkdynamics/pytok"
+repository-code: "https://github.com/networkdynamics/pytok"
+license: MIT
+keywords:
+  - tiktok
+  - web-scraping
+  - social-media
+  - data-collection
+  - browser-automation
+  - research
+abstract: >-
+  A TikTok web scraping library using zendriver browser
+  automation with automatic captcha solving.
+preferred-citation:
+  type: article
+  title: "The Invasion of Ukraine Viewed Through TikTok: A Dataset"
+  authors:
+    - family-names: "Steel"
+      given-names: "Benjamin"
+    - family-names: "Parker"
+      given-names: "Sara"
+    - family-names: "Ruths"
+      given-names: "Derek"
+  journal: "arXiv preprint"
+  year: 2023
+  identifiers:
+    - type: other
+      value: "arXiv:2301.08305"
+      description: "arXiv preprint"

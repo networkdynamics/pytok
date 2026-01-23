@@ -155,7 +155,7 @@ class Base:
         page = self.parent._page
         self.parent.logger.debug("Checking for refresh button")
         try:
-            refresh_button = await self._find_element_by_text('Refresh', timeout=1)
+            refresh_button = await self._find_p_element_by_text('Refresh', timeout=1)
             if refresh_button:
                 self.parent.logger.debug("Refresh button found, clicking")
                 await refresh_button.click()
@@ -167,7 +167,7 @@ class Base:
         page = self.parent._page
         self.parent.logger.debug("Checking for login to TikTok pop up")
         try:
-            login_popup = await page.find('Log in to TikTok', timeout=1)
+            login_popup = await self._find_p_element_by_text('Log in to TikTok', timeout=1)
             if login_popup:
                 self.parent.logger.debug("Login prompt found, checking for close button")
                 # Try multiple selectors for the close button
@@ -180,7 +180,7 @@ class Base:
                 closed = False
                 for selector in close_selectors:
                     try:
-                        login_close = await page.select(selector, timeout=1)
+                        login_close = await self._find_element_by_selector(selector, timeout=1)
                         if login_close:
                             await login_close.click()
                             await asyncio.sleep(1)

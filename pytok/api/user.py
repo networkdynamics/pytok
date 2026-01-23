@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
 from urllib.parse import urlparse
 
 import TikTokApi.exceptions as tiktokapi_exceptions
+from zendriver import cdp
 
 from ..exceptions import *
 from ..helpers import extract_tag_contents
@@ -155,8 +156,10 @@ class User(Base):
         page = self.parent._page
 
         self.parent.logger.debug(f"Loading page: {url}")
-        await page.get(url)
-        await asyncio.sleep(5)  # Wait for page to fully load
+        await page.send(cdp.page.navigate(url))
+        self.parent.logger.debug(f"Navigate sent, waiting for ready state")
+        await page.wait_for_ready_state(until='complete', timeout=30)
+        await asyncio.sleep(3)  # Brief wait for dynamic content
 
         # Wait for video items using base class method (handles refresh button, captcha, login popup)
         await self.wait_for_content_or_unavailable_or_captcha(
@@ -281,7 +284,7 @@ class User(Base):
                 status_msg = res.get('statusMsg', 'Unknown error')
                 if status_code in (10101, 209002):
                     if await self.parent._is_logged_in():
-                        raise ApiFailedException()
+                        raise ApiFailedException("TikTok-Api cannot currently use logged in session to access this content")
                     else:
                         raise LoginException(
                             f"TikTok requires login to view this content: statusCode={status_code}"
@@ -312,8 +315,13 @@ class User(Base):
         page = self.parent._page
 
         url = f"https://www.tiktok.com/@{self.username}"
-        await page.get(url)
-        await asyncio.sleep(5)  # Wait for page to load
+        self.parent.logger.debug(f"Loading page: {url}")
+        await page.send(cdp.page.navigate(url))
+        self.parent.logger.debug(f"Navigate sent, waiting for ready state")
+        async with asyncio.timeout(30):
+            await page.wait_for_ready_state(until='complete', timeout=31)
+        await asyncio.sleep(3)  # Brief wait for dynamic content
+        self.parent.logger.debug(f"Page loaded for scraping videos")
 
         # Process any pending responses
         await self.parent.process_pending_responses()

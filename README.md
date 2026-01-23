@@ -45,18 +45,13 @@ Please do not hesitate to make an issue in this repo to get our help with this!
 If you use this library in your research, please cite it using the following BibTeX entry:
 
 ```bibtex
-@software{ben_steel_2024_12802714,
-  author       = {Ben Steel and
-                  Alexei Abrahams},
-  title        = {{networkdynamics/pytok: Initial working version of 
-                   library}},
-  month        = jul,
-  year         = 2024,
-  publisher    = {Zenodo},
-  version      = {v0.1.0},
-  doi          = {10.5281/zenodo.12802714},
-  url          = {https://doi.org/10.5281/zenodo.12802714}
+@article{steel2023invasion,
+  title={The invasion of ukraine viewed through tiktok: A dataset},
+  author={Steel, Benjamin and Parker, Sara and Ruths, Derek},
+  journal={arXiv preprint arXiv:2301.08305},
+  year={2023}
 }
+
 ```
 
 ## Format and Schema

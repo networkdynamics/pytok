@@ -244,22 +244,64 @@ class Video(Base):
 
     async def related_videos(self, count=20) -> list[dict]:
         """
-        Returns a list of related
-        TikTok Videos to the current Video.
-        
+        Returns a list of related TikTok Videos to the current Video.
+
+        Uses API-first approach with fallback to scraping.
         """
         try:
             async for video in self._related_videos_api(count=count):
                 yield video
-        except Exception as ex:
-            self.parent.logger.debug(f"API related videos fetch failed with exception: {ex}, falling back to scraping")
+        except exceptions.ApiFailedException as ex:
+            self.parent.logger.warning(f"API related videos fetch failed: {ex}. Falling back to scraping method.")
             async for video in self._related_videos_scraping(count=count):
                 yield video
 
     async def _related_videos_api(self, count=20) -> list[dict]:
-        video_obj = self.parent.tiktok_api.video(id=self.id, url=self._get_url())
-        async for video in video_obj.related_videos(count=count):
-            yield video
+        """Get related videos using TikTok API directly via make_request."""
+        self.parent.logger.debug(f"Starting _related_videos_api for video {self.id}")
+        amount_yielded = 0
+
+        params = {
+            'itemID': self.id,
+            'count': 16,
+        }
+
+        while count is None or amount_yielded < count:
+            self.parent.logger.debug(f"Making TikTok-Api request for related videos")
+            try:
+                res = await self.parent.tiktok_api.make_request(
+                    url="https://www.tiktok.com/api/related/item_list/",
+                    params=params,
+                )
+            except Exception as e:
+                self.parent.logger.warning(f"make_request failed for related videos: {e}")
+                raise exceptions.ApiFailedException(f"TikTok-Api make_request failed: {e}")
+
+            if res is None:
+                raise exceptions.ApiFailedException("TikTok-Api returned None response")
+
+            if res.get('type') == 'verify':
+                raise exceptions.ApiFailedException("TikTok API is asking for verification")
+
+            status_code = res.get('statusCode', 0)
+            if status_code != 0:
+                status_msg = res.get('statusMsg', 'Unknown error')
+                raise exceptions.ApiFailedException(
+                    f"TikTok returned error for related videos: statusCode={status_code}, statusMsg={status_msg}"
+                )
+
+            videos = res.get('itemList', [])
+            self.parent.logger.debug(f"Got {len(videos)} related videos from API")
+
+            if videos:
+                for video in videos:
+                    yield video
+                    amount_yielded += 1
+                    if count is not None and amount_yielded >= count:
+                        return
+
+            # Related videos API doesn't have pagination cursor, just return what we got
+            return
 
     async def _related_videos_scraping(self, count=20) -> list[dict]:
         page = self.parent._page
@@ -445,11 +487,129 @@ class Video(Base):
             num_comments_to_fetch = comment['reply_comment_total'] - num_already_fetched
 
     async def comments(self, count=200, batch_size=100):
+        """
+        Returns comments for this video.
+
+        Uses API-first approach with fallback to scraping.
+        """
+        try:
+            async for comment in self._comments_api(count=count, batch_size=batch_size):
+                yield comment
+        except exceptions.ApiFailedException as ex:
+            self.parent.logger.warning(f"API comments fetch failed: {ex}. Falling back to scraping method.")
+            async for comment in self._comments_scraping(count=count, batch_size=batch_size):
+                yield comment
+
+    async def _comments_api(self, count=200, batch_size=100):
+        """Get comments using TikTok API directly via make_request."""
+        self.parent.logger.debug(f"Starting _comments_api for video {self.id}")
+        amount_yielded = 0
+        cursor = 0
+
+        while count is None or amount_yielded < count:
+            params = {
+                'aweme_id': self.id,
+                'count': 20,
+                'cursor': cursor,
+            }
+
+            self.parent.logger.debug(f"Making TikTok-Api request for comments with cursor={cursor}")
+            try:
+                res = await self.parent.tiktok_api.make_request(
+                    url="https://www.tiktok.com/api/comment/list/",
+                    params=params,
+                )
+            except Exception as e:
+                self.parent.logger.warning(f"make_request failed for comments: {e}")
+                raise exceptions.ApiFailedException(f"TikTok-Api make_request failed: {e}")
+
+            if res is None:
+                raise exceptions.ApiFailedException("TikTok-Api returned None response")
+
+            if res.get('type') == 'verify':
+                raise exceptions.ApiFailedException("TikTok API is asking for verification")
+
+            status_code = res.get('status_code', 0)
+            if status_code != 0:
+                status_msg = res.get('status_msg', 'Unknown error')
+                raise exceptions.ApiFailedException(
+                    f"TikTok returned error for comments: status_code={status_code}, status_msg={status_msg}"
+                )
+
+            comments = res.get('comments', [])
+            self.parent.logger.debug(f"Got {len(comments)} comments from API")
+
+            if comments:
+                for comment in comments:
+                    # Get comment replies if available
+                    if comment.get('reply_comment_total', 0) > 0:
+                        try:
+                            await self._get_comment_replies_api(comment, batch_size)
+                        except Exception:
+                            pass
+                    yield comment
+                    amount_yielded += 1
+                    if count is not None and amount_yielded >= count:
+                        return
+
+            has_more = res.get('has_more')
+            if has_more != 1:
+                self.parent.logger.info("TikTok isn't sending more comments beyond this point.")
+                return
+
+            cursor = res.get('cursor', cursor)
+            await self.parent.request_delay()
+
+    async def _get_comment_replies_api(self, comment, batch_size):
+        """Get comment replies using TikTok API directly via make_request."""
+        num_already_fetched = len(comment.get('reply_comment', []) or [])
+        num_comments_to_fetch = comment.get('reply_comment_total', 0) - num_already_fetched
+        cursor = num_already_fetched
+
+        while num_comments_to_fetch > 0:
+            params = {
+                'item_id': comment.get('aweme_id', self.id),
+                'comment_id': comment['cid'],
+                'count': min(num_comments_to_fetch, batch_size),
+                'cursor': cursor,
+            }
+
+            try:
+                res = await self.parent.tiktok_api.make_request(
+                    url="https://www.tiktok.com/api/comment/list/reply/",
+                    params=params,
+                )
+            except Exception as e:
+                self.parent.logger.debug(f"Failed to get comment replies via API: {e}")
+                return
+
+            if res is None:
+                return
+
+            reply_comments = res.get('comments', [])
+
+            if reply_comments:
+                if comment.get('reply_comment'):
+                    comment['reply_comment'] = comment['reply_comment'] + reply_comments
+                else:
+                    comment['reply_comment'] = reply_comments
+
+            has_more = res.get('has_more')
+            if has_more != 1:
+                break
+
+            await self.parent.request_delay()
+
+            num_already_fetched = len(comment.get('reply_comment', []) or [])
+            num_comments_to_fetch = comment.get('reply_comment_total', 0) - num_already_fetched
+            cursor = num_already_fetched
+
+    async def _comments_scraping(self, count=200, batch_size=100):
+        """Get comments by scraping the video page."""
         if (self.id and self.username) or self.as_dict:
             await self.view()
             await self.wait_for_content_or_unavailable_or_captcha('css=[data-e2e=comment-level-1]',
                                                                   'Be the first to comment!')
-            # TODO allow multi layer comment fetch
 
             amount_yielded = 0
             all_comments, processed_urls, finished = await self._get_comments_and_req(count)
@@ -469,13 +629,12 @@ class Video(Base):
             try:
                 async for comment in self._get_api_comments(count, batch_size, comment_ids):
                     yield comment
-            except exceptions.ApiFailedException as e:
+            except exceptions.ApiFailedException:
                 async for comment in self._get_scroll_comments(count, amount_yielded, processed_urls):
                     yield comment
         else:
-            # if we only have the video id, we need to entirely rely on the api
-            async for comment in self._get_api_comments(count, batch_size, set()):
-                yield comment
+            # if we only have the video id, fall back to scroll-based scraping
+            raise exceptions.ApiFailedException("Cannot scrape comments without username - need page navigation")
 
     async def _get_scroll_comments(self, count, amount_yielded, processed_urls):
         page = self.parent._page

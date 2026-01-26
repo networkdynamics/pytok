@@ -222,6 +222,7 @@ class User(Base):
 
         # If user info was obtained via TikTok-Api, use API for videos directly
         # If user info was scraped (page already loaded), get initial videos from page first
+        amount_yielded = 0
         if self._used_api_for_info:
             cursor = 0
         else:
@@ -229,19 +230,24 @@ class User(Base):
             self.parent.logger.info(f"Got {len(videos)} initial videos, finished={finished}, cursor={cursor}")
             for video in videos:
                 yield video
+                amount_yielded += 1
+                if count and amount_yielded >= count:
+                    self.parent.logger.info(f"Reached count limit after {amount_yielded} initial videos")
+                    return
 
-            if finished or count and len(videos) >= count:
+            if finished:
                 self.parent.logger.info(f"Finished after initial videos")
                 return
 
             self.parent.logger.info(f"Continuing with _get_videos_api to get more videos")
 
+        remaining = None if count is None else count - amount_yielded
         try:
-            async for video in self._get_videos_api(count, 0, get_bytes, **kwargs):
+            async for video in self._get_videos_api(remaining, 0, get_bytes, **kwargs):
                 yield video
         except ApiFailedException as ex:
             self.parent.logger.warning(f"API method failed with exception: {ex}. Falling back to scraping method.")
-            async for video in self._get_videos_scraping(count, get_bytes):
+            async for video in self._get_videos_scraping(remaining, get_bytes):
                 yield video
 
 
@@ -295,10 +301,11 @@ class User(Base):
 
             videos = res.get('itemList', [])
 
-            if videos:
-                amount_yielded += len(videos)
-                for video in videos:
-                    yield self.parent.video(data=video)
+            for video in videos:
+                yield self.parent.video(data=video)
+                amount_yielded += 1
+                if count is not None and amount_yielded >= count:
+                    return
 
             has_more = res.get("hasMore")
             if not has_more:

@@ -3,6 +3,8 @@ from datetime import datetime
 import json
 import random
 
+from zendriver import cdp
+
 from .. import exceptions, captcha_solver
 
 TOK_DELAY = 20
@@ -245,17 +247,21 @@ class Base:
         tries = 0
         self.parent.logger.debug("Waiting for main content to become visible")
         content_is_visible = await self._is_selector_visible(content_tag)
+        if content_is_visible:
+            return
+        
         while not content_is_visible and tries < max_tries:
             await asyncio.sleep(1)
             await self.check_and_resolve_refresh_button()
             tries += 1
-            if await self._is_selector_visible(content_tag):
+            content_is_visible = await self._is_selector_visible(content_tag)
+            if content_is_visible:
                 return
             
         # now try some other behaviour
         page = self.parent._page
         current_url = page.url
-        await page.get("https://www.tiktok.com")
+        await page.send(cdp.page.navigate("https://www.tiktok.com"))
         await asyncio.sleep(3)
 
         # do some scrolling
@@ -263,7 +269,8 @@ class Base:
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
             await asyncio.sleep(2)
 
-        await page.get(current_url)
+        await page.send(cdp.page.navigate(current_url))
+        await asyncio.sleep(3)
 
         if await self._is_selector_visible(content_tag):
             return await self._find_element_by_selector(content_tag, timeout=1)

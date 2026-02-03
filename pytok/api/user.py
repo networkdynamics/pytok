@@ -158,8 +158,8 @@ class User(Base):
         self.parent.logger.debug(f"Loading page: {url}")
         await page.send(cdp.page.navigate(url))
         self.parent.logger.debug(f"Navigate sent, waiting for ready state")
-        async with asyncio.timeout(30):
-            await page.wait_for_ready_state(until='complete', timeout=31)
+        async with asyncio.timeout(10):
+            await page.wait_for_ready_state(until='complete', timeout=11)
         await asyncio.sleep(3)  # Brief wait for dynamic content
 
         # Wait for video items using base class method (handles refresh button, captcha, login popup)

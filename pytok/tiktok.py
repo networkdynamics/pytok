@@ -339,13 +339,13 @@ class PyTok:
         if self._request_delay is not None:
             await asyncio.sleep(self._request_delay)
 
-    def __del__(self):
+    async def __del__(self):
         """A basic cleanup method, called automatically from the code"""
         if not self._is_context_manager:
             self.logger.debug(
                 "PyTok was shutdown improperlly. Ensure the instance is terminated with .shutdown()"
             )
-            self.shutdown()
+            await self.shutdown()
         return
 
     #
@@ -378,6 +378,53 @@ class PyTok:
 
     async def __aexit__(self, type, value, traceback):
         await self.shutdown()
+
+    async def refresh_sessions(self, refresh_zendriver: bool = True):
+        """Reset TikTok-Api sessions to get fresh tokens/cookies without restarting zendriver.
+
+        Call this when you notice API requests starting to fail consistently.
+        This keeps the visible zendriver browser open but creates fresh TikTok-Api
+        Playwright sessions with new device_id/odin_id and cookies.
+
+        Args:
+            refresh_zendriver: If True, also navigate zendriver back to TikTok.com
+                to refresh its cookies. Defaults to True.
+        """
+        self.logger.info("Refreshing TikTok-Api sessions...")
+
+        # Close existing TikTok-Api sessions (this closes its Playwright browser)
+        try:
+            await self.tiktok_api.close_sessions()
+        except Exception as e:
+            self.logger.debug(f"Error closing sessions: {e}")
+
+        # Optionally refresh zendriver cookies
+        if refresh_zendriver:
+            self.logger.debug("Refreshing zendriver cookies...")
+            await self._page.send(cdp.page.navigate('https://www.tiktok.com'))
+            async with asyncio.timeout(15):
+                await self._page.wait_for_ready_state(until='complete', timeout=16)
+            await asyncio.sleep(3)
+
+        # Clear accumulated state
+        self.request_cache = {}
+        self._collected_responses = []
+        self._pending_requests = {}
+
+        # Recreate TikTok-Api sessions with fresh tokens
+        await self.tiktok_api.create_sessions(
+            num_sessions=self._num_sessions,
+            headless=self._headless,
+            browser=self._browser,
+            suppress_resource_load_types=[],
+            starting_url='https://www.tiktok.com',
+            override_browser_args=[
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding',
+            ]
+        )
+
+        self.logger.info("Sessions refreshed successfully")
 
     async def get_ms_tokens(self, retries=3, delay=2):
         # Use CDP to get cookies from zendriver, with retry logic

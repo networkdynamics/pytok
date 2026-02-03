@@ -309,7 +309,8 @@ class PyTok:
 
         # Navigate to TikTok (use CDP navigate + wait_for_ready_state to avoid hanging on slow resources)
         await self._page.send(cdp.page.navigate('https://www.tiktok.com'))
-        await self._page.wait_for_ready_state(until='complete', timeout=10)
+        async with asyncio.timeout(10):
+            await self._page.wait_for_ready_state(until='complete', timeout=11)
         await asyncio.sleep(3)
 
         # Get user agent from zendriver page
@@ -445,7 +446,8 @@ class PyTok:
 
         # Navigate to login page
         await self._page.send(cdp.page.navigate(login_url))
-        await self._page.wait_for_ready_state(until='complete', timeout=30)
+        async with asyncio.timeout(30):
+            await self._page.wait_for_ready_state(until='complete', timeout=31)
         await asyncio.sleep(2)
 
         if username and password:

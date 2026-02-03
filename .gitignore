@@ -1,3 +1,9 @@
+out.*
+out_*
+related.json
+video.html
+manual_captcha_*
+
 CLAUDE.local.md
 
 __pycache__/*

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 
 from pytok.tiktok import PyTok
 
@@ -7,7 +8,7 @@ username = 'therock'
 id = '7296444945991224622'
 
 async def main():
-    async with PyTok() as api:
+    async with PyTok(logging_level=logging.DEBUG) as api:
         video = api.video(username=username, id=id)
 
         # Bytes of the TikTok video

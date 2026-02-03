@@ -300,6 +300,10 @@ class PyTok:
         # Get a page and set up network tracking
         self._page = await self._zendriver_browser.get('about:blank')
 
+        # Simulate focused/active page to prevent throttling when window loses focus
+        await self._page.send(cdp.emulation.set_focus_emulation_enabled(True))
+        await self._page.send(cdp.page.set_web_lifecycle_state("active"))
+
         # Enable network tracking via CDP
         await self._page.send(cdp.network.enable())
 
@@ -487,6 +491,7 @@ class PyTok:
         """
         if await self._is_logged_in():
             self.logger.info("Already logged in.")
+            await self._refresh_api_tokens()
             return True
 
         login_url = 'https://www.tiktok.com/login/phone-or-email/email'
@@ -518,6 +523,7 @@ class PyTok:
         while time.time() - start_time < timeout:
             if await self._is_logged_in():
                 self.logger.info("Login successful!")
+                await self._refresh_api_tokens()
                 return True
             await asyncio.sleep(2)
 

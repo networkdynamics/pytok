@@ -511,6 +511,8 @@ class Video(Base):
                 'aweme_id': self.id,
                 'count': 20,
                 'cursor': cursor,
+                'from_page': 'video',
+                'root_referer': 'https://www.tiktok.com/',
             }
 
             self.parent.logger.debug(f"Making TikTok-Api request for comments with cursor={cursor}")
@@ -572,6 +574,8 @@ class Video(Base):
                 'comment_id': comment['cid'],
                 'count': min(num_comments_to_fetch, batch_size),
                 'cursor': cursor,
+                'from_page': 'video',
+                'root_referer': 'https://www.tiktok.com/',
             }
 
             try:
@@ -608,6 +612,17 @@ class Video(Base):
         """Get comments by scraping the video page."""
         if (self.id and self.username) or self.as_dict:
             await self.view()
+
+            # Comments may not auto-load; click the comment icon to open the panel
+            page = self.parent._page
+            try:
+                comment_icon = await page.select('[data-e2e="comment-icon"]', timeout=3)
+                if comment_icon:
+                    await comment_icon.mouse_click()
+                    await asyncio.sleep(2)
+            except Exception:
+                pass
+
             await self.wait_for_content_or_unavailable_or_captcha('css=[data-e2e=comment-level-1]',
                                                                   'Be the first to comment!')
 

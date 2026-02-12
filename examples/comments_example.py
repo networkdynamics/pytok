@@ -20,6 +20,7 @@ async def main():
                 comments.append(comment)
 
             assert len(comments) > 0, "No comments found"
+            print(f"Found {len(comments)} comments")
             with open("out.json", "w") as f:
                 json.dump(comments, f)
 

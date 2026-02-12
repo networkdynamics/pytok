@@ -146,6 +146,37 @@ class PyTok:
         '--disable-renderer-backgrounding',
     ]
 
+    # JavaScript to override Page Visibility API and focus detection.
+    # TikTok checks these to detect backgrounded/unfocused browser tabs.
+    _VISIBILITY_OVERRIDE_JS = """
+    // Override document.hidden to always return false
+    Object.defineProperty(document, 'hidden', {
+        get: function() { return false; },
+        configurable: true
+    });
+
+    // Override document.visibilityState to always return 'visible'
+    Object.defineProperty(document, 'visibilityState', {
+        get: function() { return 'visible'; },
+        configurable: true
+    });
+
+    // Override document.hasFocus to always return true
+    Document.prototype.hasFocus = function() { return true; };
+
+    // Suppress visibilitychange events so TikTok never sees a state transition
+    document.addEventListener('visibilitychange', function(e) {
+        e.stopImmediatePropagation();
+    }, true);
+
+    // Override the onvisibilitychange handler setter to be a no-op
+    Object.defineProperty(document, 'onvisibilitychange', {
+        get: function() { return null; },
+        set: function(v) {},
+        configurable: true
+    });
+    """
+
     def __init__(
             self,
             logging_level: int = logging.WARNING,
@@ -304,6 +335,10 @@ class PyTok:
         await self._page.send(cdp.emulation.set_focus_emulation_enabled(True))
         await self._page.send(cdp.page.set_web_lifecycle_state("active"))
 
+        # TODO: test whether injecting visibility overrides into zendriver helps
+        # await self._page.evaluate(self._VISIBILITY_OVERRIDE_JS)
+        # await self._page.send(cdp.page.add_script_to_evaluate_on_new_document(self._VISIBILITY_OVERRIDE_JS))
+
         # Enable network tracking via CDP
         await self._page.send(cdp.network.enable())
 
@@ -336,12 +371,30 @@ class PyTok:
             ]
         )
 
+        # TODO: test whether injecting visibility overrides into Playwright sessions helps
+        # await self._inject_visibility_into_sessions()
+
         self._is_context_manager = True
         return self
+
+    async def _inject_visibility_into_sessions(self):
+        """Inject visibility API overrides into all TikTok-Api Playwright sessions.
+
+        Uses add_init_script so the overrides apply on future navigations.
+        Does NOT call evaluate() on the current page to avoid disrupting
+        already-loaded TikTok scripts like byted_acrawler.
+        """
+        for session in self.tiktok_api.sessions:
+            try:
+                await session.page.add_init_script(self._VISIBILITY_OVERRIDE_JS)
+            except Exception as e:
+                self.logger.debug(f"Failed to inject visibility overrides into session: {e}")
 
     async def request_delay(self):
         if self._request_delay is not None:
             await asyncio.sleep(self._request_delay)
+        # Add small random jitter to look more human
+        await asyncio.sleep(random.uniform(0.1, 0.5))
 
     async def __del__(self):
         """A basic cleanup method, called automatically from the code"""
@@ -427,6 +480,9 @@ class PyTok:
                 '--disable-renderer-backgrounding',
             ]
         )
+
+        # TODO: test whether injecting visibility overrides into Playwright sessions helps
+        # await self._inject_visibility_into_sessions()
 
         self.logger.info("Sessions refreshed successfully")
 

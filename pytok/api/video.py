@@ -486,21 +486,21 @@ class Video(Base):
             num_already_fetched = len(comment['reply_comment'])
             num_comments_to_fetch = comment['reply_comment_total'] - num_already_fetched
 
-    async def comments(self, count=200, batch_size=100):
+    async def comments(self, count=200, batch_size=100, fetch_replies=True):
         """
         Returns comments for this video.
 
         Uses API-first approach with fallback to scraping.
         """
         try:
-            async for comment in self._comments_api(count=count, batch_size=batch_size):
+            async for comment in self._comments_api(count=count, batch_size=batch_size, fetch_replies=fetch_replies):
                 yield comment
         except exceptions.ApiFailedException as ex:
             self.parent.logger.warning(f"API comments fetch failed: {ex}. Falling back to scraping method.")
-            async for comment in self._comments_scraping(count=count, batch_size=batch_size):
+            async for comment in self._comments_scraping(count=count, batch_size=batch_size, fetch_replies=fetch_replies):
                 yield comment
 
-    async def _comments_api(self, count=200, batch_size=100):
+    async def _comments_api(self, count=200, batch_size=100, fetch_replies=True):
         """Get comments using TikTok API directly via make_request."""
         self.parent.logger.debug(f"Starting _comments_api for video {self.id}")
         amount_yielded = 0
@@ -544,7 +544,7 @@ class Video(Base):
             if comments:
                 for comment in comments:
                     # Get comment replies if available
-                    if comment.get('reply_comment_total', 0) > 0:
+                    if fetch_replies and comment.get('reply_comment_total', 0) > 0:
                         try:
                             await self._get_comment_replies_api(comment, batch_size)
                         except Exception:
@@ -608,7 +608,7 @@ class Video(Base):
             num_comments_to_fetch = comment.get('reply_comment_total', 0) - num_already_fetched
             cursor = num_already_fetched
 
-    async def _comments_scraping(self, count=200, batch_size=100):
+    async def _comments_scraping(self, count=200, batch_size=100, fetch_replies=True):
         """Get comments by scraping the video page."""
         if (self.id and self.username) or self.as_dict:
             await self.view()
@@ -629,8 +629,9 @@ class Video(Base):
             amount_yielded = 0
             all_comments, processed_urls, finished = await self._get_comments_and_req(count)
 
-            for comment in all_comments:
-                await self._get_comment_replies(comment, batch_size)
+            if fetch_replies:
+                for comment in all_comments:
+                    await self._get_comment_replies(comment, batch_size)
 
             amount_yielded += len(all_comments)
             for comment in all_comments:
@@ -642,16 +643,16 @@ class Video(Base):
             # so that we don't re-yield any comments previously yielded
             comment_ids = set(comment['cid'] for comment in all_comments)
             try:
-                async for comment in self._get_api_comments(count, batch_size, comment_ids):
+                async for comment in self._get_api_comments(count, batch_size, comment_ids, fetch_replies=fetch_replies):
                     yield comment
             except exceptions.ApiFailedException:
-                async for comment in self._get_scroll_comments(count, amount_yielded, processed_urls):
+                async for comment in self._get_scroll_comments(count, amount_yielded, processed_urls, fetch_replies=fetch_replies):
                     yield comment
         else:
             # if we only have the video id, fall back to scroll-based scraping
             raise exceptions.ApiFailedException("Cannot scrape comments without username - need page navigation")
 
-    async def _get_scroll_comments(self, count, amount_yielded, processed_urls):
+    async def _get_scroll_comments(self, count, amount_yielded, processed_urls, fetch_replies=True):
         page = self.parent._page
         if page.url != self._get_url():
             await self.view()
@@ -689,8 +690,9 @@ class Video(Base):
 
                     comments = res.get("comments", [])
 
-                    for comment in comments:
-                        await self._get_comment_replies(comment, 100)
+                    if fetch_replies:
+                        for comment in comments:
+                            await self._get_comment_replies(comment, 100)
 
                     amount_yielded += len(comments)
                     for comment in comments:
@@ -739,7 +741,7 @@ class Video(Base):
 
         return res
 
-    async def _get_api_comments(self, count, batch_size, comment_ids):
+    async def _get_api_comments(self, count, batch_size, comment_ids, fetch_replies=True):
         data_request = self.parent.request_cache['comments']
 
         amount_yielded = len(comment_ids)
@@ -760,10 +762,11 @@ class Video(Base):
                 if comments:
                     for comment in comments:
                         if comment['cid'] not in comment_ids:
-                            try:
-                                await self._get_comment_replies(comment, batch_size)
-                            except Exception:
-                                pass
+                            if fetch_replies:
+                                try:
+                                    await self._get_comment_replies(comment, batch_size)
+                                except Exception:
+                                    pass
                             yield comment
                             amount_yielded += 1
 

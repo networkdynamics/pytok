@@ -6,7 +6,6 @@ import re
 from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
 from urllib.parse import urlparse
 
-import TikTokApi.exceptions as tiktokapi_exceptions
 from zendriver import cdp
 
 from ..exceptions import *
@@ -105,7 +104,7 @@ class User(Base):
                     url="https://www.tiktok.com/api/user/detail/",
                     params=url_params,
                 )
-            except tiktokapi_exceptions.EmptyResponseException:
+            except EmptyResponseException:
                 raise ApiFailedException("TikTok API returned empty response")
 
             if resp is None:

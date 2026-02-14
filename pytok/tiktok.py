@@ -4,110 +4,13 @@ import logging
 import os
 import re
 import time
-from typing import Any, Awaitable, Callable, Optional
+from typing import Optional
 
-from patchright.async_api import (
-    async_playwright,
-    BrowserContext,
-    Playwright,
-    Page,
-    ProxySettings
-)
-from proxyproviders import ProxyProvider
-from proxyproviders.algorithms import Algorithm
 import zendriver as zd
 from zendriver import cdp
-
 import random
 
-from TikTokApi import TikTokApi
-from TikTokApi.tiktok import TikTokPlaywrightSession
-from TikTokApi.helpers import random_choice
-
-
-class PatchedTikTokApi(TikTokApi):
-    """TikTokApi subclass with updated session params to match browser behavior."""
-
-    async def _TikTokApi__set_session_params(self, session: TikTokPlaywrightSession):
-        """Override session params to match what browser actually sends."""
-        user_agent = await session.page.evaluate("() => navigator.userAgent")
-        language = await session.page.evaluate(
-            "() => navigator.language || navigator.userLanguage"
-        )
-        platform = await session.page.evaluate("() => navigator.platform")
-        device_id = str(random.randint(10**18, 10**19 - 1))
-        odin_id = str(random.randint(10**18, 10**19 - 1))
-        history_len = str(random.randint(1, 10))
-        screen_height = str(random.randint(600, 1080))
-        screen_width = str(random.randint(800, 1920))
-        web_id_last_time = str(int(time.time()))
-        timezone = await session.page.evaluate(
-            "() => Intl.DateTimeFormat().resolvedOptions().timeZone"
-        )
-
-        browser_version = await session.page.evaluate(
-            "() => navigator.appVersion"
-        )
-
-        os_name = platform.lower().split()[0] if platform else "windows"
-
-        session_params = {
-            "WebIdLastTime": web_id_last_time,
-            "aid": "1988",
-            "app_language": language,
-            "app_name": "tiktok_web",
-            "browser_language": language,
-            "browser_name": "Mozilla",
-            "browser_online": "true",
-            "browser_platform": platform,
-            "browser_version": browser_version,
-            "channel": "tiktok_web",
-            "cookie_enabled": "true",
-            "data_collection_enabled": "false",
-            "device_id": device_id,
-            "device_platform": "web_pc",
-            "focus_state": "true",
-            "from_page": "user",
-            "history_len": history_len,
-            "is_fullscreen": "false",
-            "is_page_visible": "true",
-            "language": language,
-            "odinId": odin_id,
-            "os": os_name,
-            "region": "US",
-            "screen_height": screen_height,
-            "screen_width": screen_width,
-            "tz_name": timezone,
-            "user_is_login": "false",
-            "video_encoding": "mp4",
-            "webcast_language": language,
-        }
-        session.params = session_params
-
-    async def sign_url(self, url: str, **kwargs):
-        """Sign a url with X-Bogus and X-Gnarly parameters."""
-        try:
-            i, session = await self._get_valid_session_index(**kwargs)
-        except Exception:
-            i, session = self._get_session(**kwargs)
-
-        sign_result = await self.generate_x_bogus(url, session_index=i)
-
-        x_bogus = sign_result.get("X-Bogus")
-        if x_bogus is None:
-            raise Exception("Failed to generate X-Bogus")
-
-        if "?" in url:
-            url += "&"
-        else:
-            url += "?"
-        url += f"X-Bogus={x_bogus}"
-
-        x_gnarly = sign_result.get("X-Gnarly")
-        if x_gnarly:
-            url += f"&X-Gnarly={x_gnarly}"
-
-        return url
+from .tiktok_api import ZendriverTikTokApi
 
 from .api.sound import Sound
 from .api.user import User
@@ -144,6 +47,7 @@ class PyTok:
         '--disable-background-networking',
         '--disable-backgrounding-occluded-windows',
         '--disable-renderer-backgrounding',
+        '--mute-audio',
     ]
 
     # JavaScript to override Page Visibility API and focus detection.
@@ -182,15 +86,13 @@ class PyTok:
             logging_level: int = logging.WARNING,
             request_delay: Optional[int] = 0,
             headless: Optional[bool] = False,
-            browser: Optional[str] = "chromium",
             manual_captcha_solves: Optional[bool] = False,
             log_captcha_solves: Optional[bool] = False,
             num_sessions: int = 1,
             user_data_dir: Optional[str] = None,
             browser_args: Optional[list] = None,
     ):
-        """The PyTok class. Used to interact with TikTok. This is a singleton
-            class to prevent issues from arising with playwright
+        """The PyTok class. Used to interact with TikTok.
 
         ##### Parameters
         * logging_level: The logging level you want the program to run at, optional
@@ -210,11 +112,10 @@ class PyTok:
         * browser_args: Additional Chrome command-line arguments, optional
             Merged with default stealth args. Pass empty list [] to disable defaults.
         """
-        assert headless is False, "Running in headless currently does not work reliably."
+        # assert headless is False, "Running in headless currently does not work reliably."
 
         self._headless = headless
         self._request_delay = request_delay
-        self._browser = browser
         self._manual_captcha_solves = manual_captcha_solves
         self._log_captcha_solves = log_captcha_solves
         self._num_sessions = num_sessions
@@ -239,15 +140,11 @@ class PyTok:
 
         self.request_cache = {}
 
-        # Create TikTokApi instance for API requests (using patched version)
-        self.tiktok_api = PatchedTikTokApi(
+        # Create zendriver-based TikTokApi instance for API requests
+        self.tiktok_api = ZendriverTikTokApi(
             logging_level=logging_level
         )
 
-        if self._headless:
-            from pyvirtualdisplay import Display
-            self._display = Display()
-            self._display.start()
 
     # URL patterns we care about - TikTok API and video media
     _TRACKED_URL_PATTERNS = [
@@ -355,38 +252,34 @@ class PyTok:
         # Get user agent from zendriver page
         self._user_agent = await self._page.evaluate("navigator.userAgent")
 
-        # Create TikTok-Api sessions - let it use its own Playwright cookies
-        # (passing zendriver's msToken was counterproductive since TikTok-Api
-        # has its own browser session with its own valid msToken)
-        suppress_resource_load_types = []
+        # Create TikTok-Api sessions using the shared zendriver browser.
+        # Pass the existing page tab so no new tabs need to be opened
+        # (new tabs steal OS-level window focus).
         await self.tiktok_api.create_sessions(
+            zendriver_browser=self._zendriver_browser,
             num_sessions=self._num_sessions,
-            headless=self._headless,
-            browser=self._browser,
-            suppress_resource_load_types=suppress_resource_load_types,
             starting_url='https://www.tiktok.com',
-            override_browser_args=[
-                '--disable-backgrounding-occluded-windows',
-                '--disable-renderer-backgrounding',
-            ]
+            existing_tab=self._page,
         )
 
-        # TODO: test whether injecting visibility overrides into Playwright sessions helps
+        # TODO: test whether injecting visibility overrides into sessions helps
         # await self._inject_visibility_into_sessions()
 
         self._is_context_manager = True
         return self
 
     async def _inject_visibility_into_sessions(self):
-        """Inject visibility API overrides into all TikTok-Api Playwright sessions.
+        """Inject visibility API overrides into all TikTok-Api sessions.
 
-        Uses add_init_script so the overrides apply on future navigations.
-        Does NOT call evaluate() on the current page to avoid disrupting
-        already-loaded TikTok scripts like byted_acrawler.
+        Uses CDP add_script_to_evaluate_on_new_document so overrides apply on
+        future navigations. Does NOT call evaluate() on the current page to
+        avoid disrupting already-loaded TikTok scripts like byted_acrawler.
         """
         for session in self.tiktok_api.sessions:
             try:
-                await session.page.add_init_script(self._VISIBILITY_OVERRIDE_JS)
+                await session.tab.send(
+                    cdp.page.add_script_to_evaluate_on_new_document(self._VISIBILITY_OVERRIDE_JS)
+                )
             except Exception as e:
                 self.logger.debug(f"Failed to inject visibility overrides into session: {e}")
 
@@ -416,48 +309,43 @@ class PyTok:
 
     async def shutdown(self) -> None:
         try:
-            # Close zendriver browser
+            # Close TikTok-Api session tabs first (they live in the shared browser)
+            await self.tiktok_api.close_sessions()
+        except Exception:
+            pass
+        try:
+            # Then stop the zendriver browser (which owns all tabs)
             zendriver_browser = getattr(self, "_zendriver_browser", None)
             if zendriver_browser:
                 await zendriver_browser.stop()
         except Exception:
             pass
-        try:
-            # Close TikTok-Api sessions (which closes browser, contexts, and playwright)
-            await self.tiktok_api.close_sessions()
-        except Exception:
-            pass
-        finally:
-            if self._headless:
-                display = getattr(self, "_display", None)
-                if display:
-                    display.stop()
 
     async def __aexit__(self, type, value, traceback):
         await self.shutdown()
 
     async def refresh_sessions(self, refresh_zendriver: bool = True):
-        """Reset TikTok-Api sessions to get fresh tokens/cookies without restarting zendriver.
+        """Reset TikTok-Api sessions to get fresh tokens/cookies.
 
         Call this when you notice API requests starting to fail consistently.
-        This keeps the visible zendriver browser open but creates fresh TikTok-Api
-        Playwright sessions with new device_id/odin_id and cookies.
+        This keeps the browser open but creates fresh TikTok-Api sessions
+        (new tabs) with new device_id/odin_id and cookies.
 
         Args:
-            refresh_zendriver: If True, also navigate zendriver back to TikTok.com
-                to refresh its cookies. Defaults to True.
+            refresh_zendriver: If True, also navigate the main page back to
+                TikTok.com to refresh cookies. Defaults to True.
         """
         self.logger.info("Refreshing TikTok-Api sessions...")
 
-        # Close existing TikTok-Api sessions (this closes its Playwright browser)
+        # Close existing TikTok-Api session tabs
         try:
             await self.tiktok_api.close_sessions()
         except Exception as e:
             self.logger.debug(f"Error closing sessions: {e}")
 
-        # Optionally refresh zendriver cookies
+        # Optionally refresh cookies by navigating the main page
         if refresh_zendriver:
-            self.logger.debug("Refreshing zendriver cookies...")
+            self.logger.debug("Refreshing cookies...")
             await self._page.send(cdp.page.navigate('https://www.tiktok.com'))
             async with asyncio.timeout(15):
                 await self._page.wait_for_ready_state(until='complete', timeout=16)
@@ -470,18 +358,12 @@ class PyTok:
 
         # Recreate TikTok-Api sessions with fresh tokens
         await self.tiktok_api.create_sessions(
+            zendriver_browser=self._zendriver_browser,
             num_sessions=self._num_sessions,
-            headless=self._headless,
-            browser=self._browser,
-            suppress_resource_load_types=[],
             starting_url='https://www.tiktok.com',
-            override_browser_args=[
-                '--disable-backgrounding-occluded-windows',
-                '--disable-renderer-backgrounding',
-            ]
         )
 
-        # TODO: test whether injecting visibility overrides into Playwright sessions helps
+        # TODO: test whether injecting visibility overrides into sessions helps
         # await self._inject_visibility_into_sessions()
 
         self.logger.info("Sessions refreshed successfully")
@@ -758,39 +640,21 @@ class PyTok:
                 continue
         return None
 
-    async def _get_cookies_for_playwright(self):
-        """Get all cookies from zendriver in playwright format."""
-        cdp_cookies = await self._page.send(cdp.network.get_cookies())
-        playwright_cookies = []
-        for c in cdp_cookies:
-            cookie = {
-                'name': c.name,
-                'value': c.value,
-                'domain': c.domain,
-                'path': c.path,
-                'httpOnly': c.http_only,
-                'secure': c.secure,
-            }
-            if c.expires:
-                cookie['expires'] = c.expires
-            if c.same_site:
-                cookie['sameSite'] = c.same_site.value.capitalize()
-            playwright_cookies.append(cookie)
-        return playwright_cookies
-
     async def _refresh_api_tokens(self):
-        """Refresh session cookies for TikTok-Api after login."""
+        """Refresh msToken on TikTok-Api sessions after login.
+
+        Since the browser is shared, cookies are already shared across all tabs.
+        We just need to update each session's ms_token field.
+        """
         try:
-            cookies = await self._get_cookies_for_playwright()
-
-            # Update TikTok-Api sessions with cookies from zendriver
-            # (don't set session.ms_token - let TikTok-Api use its own Playwright cookies)
             for session in self.tiktok_api.sessions:
-                await self.tiktok_api.set_session_cookies(session, cookies)
-
-            self.logger.debug(f"Refreshed {len(cookies)} cookies after login")
+                cookies = await self.tiktok_api.get_session_cookies(session)
+                ms_token = cookies.get("msToken")
+                if ms_token:
+                    session.ms_token = ms_token
+            self.logger.debug("Refreshed msToken on API sessions")
         except Exception as e:
-            self.logger.warning(f"Failed to refresh API cookies: {e}")
+            self.logger.warning(f"Failed to refresh API tokens: {e}")
 
     async def _is_logged_in(self) -> bool:
         """Check if user is logged in by looking for session cookies."""

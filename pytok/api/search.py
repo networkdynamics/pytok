@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from ..tiktok import PyTok
 
 import requests
-from playwright.async_api import TimeoutError
 
 class Search(Base):
     """Contains static methods about searching."""

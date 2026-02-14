@@ -104,9 +104,32 @@ class Video(Base):
         return video_data
     
     async def _info_api(self, **kwargs) -> dict:
-        video_obj = self.parent.tiktok_api.video(id=self.id, url=self._get_url())
-        video_data = await video_obj.info()
-        return video_data
+        url = self._get_url()
+        _, session = self.parent.tiktok_api._get_session()
+        r = requests.get(url, headers=session.headers)
+        if r.status_code != 200:
+            raise exceptions.NotAvailableException(
+                f"TikTok returned status {r.status_code}"
+            )
+        contents = extract_tag_contents(r.text)
+        if not contents:
+            raise exceptions.NotAvailableException(
+                "Could not extract data from response"
+            )
+        data = json.loads(contents)
+        # Extract video data from the parsed JSON structure
+        default_scope = data.get("__DEFAULT_SCOPE__", {})
+        video_detail = default_scope.get("webapp.video-detail", {})
+        video_info = video_detail.get("itemInfo", {}).get("itemStruct")
+        if video_info is None:
+            # Try SIGI_STATE format
+            if self.id in data.get("ItemModule", {}):
+                video_info = data["ItemModule"][self.id]
+            else:
+                raise exceptions.NotAvailableException(
+                    "Could not extract video info from response"
+                )
+        return video_info
     
     async def _info_scraping(self, **kwargs) -> dict:
         url = self._get_url()
@@ -539,6 +562,10 @@ class Video(Base):
                 )
 
             comments = res.get('comments', [])
+
+            if comments is None:
+                raise exceptions.NoContentException("No comments found for this video")
+
             self.parent.logger.debug(f"Got {len(comments)} comments from API")
 
             if comments:

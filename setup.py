@@ -30,13 +30,11 @@ setuptools.setup(
     ],
     install_requires=[
         "zendriver",
-        "TikTokApi",
         "requests",
         "brotli",
         "opencv-python",
         "numpy",
         "tqdm",
-        "pyvirtualdisplay",
         "pandas",
         "polars",
     ],

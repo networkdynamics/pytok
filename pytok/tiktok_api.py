@@ -295,8 +295,10 @@ class ZendriverTikTokApi:
             request_headers = None
             headers_event = asyncio.Event()
 
-            def handle_request(event: cdp.network.RequestWillBeSent):
+            def handle_request(event: cdp.network.RequestWillBeSent, connection=None):
                 nonlocal request_headers
+                if not isinstance(event, cdp.network.RequestWillBeSent):
+                    return
                 if request_headers is None:
                     raw = event.request.headers
                     request_headers = dict(raw) if raw else {}
@@ -631,6 +633,7 @@ class ZendriverTikTokApi:
         params: dict = None,
         retries: int = 3,
         exponential_backoff: bool = True,
+        invalid_response_callback: Optional[callable] = lambda r: False,
         **kwargs,
     ):
         try:
@@ -682,8 +685,11 @@ class ZendriverTikTokApi:
 
                 try:
                     data = json.loads(result)
-                    if data.get("status_code") != 0:
+                    status_code = max(data.get('statusCode', 0), data.get('status_code', 0))
+                    if status_code != 0:
                         self.logger.error(f"Got an unexpected status code: {data}")
+                    if status_code == 0 and invalid_response_callback(data):
+                        raise Exception("Response failed validation")
                     return data
                 except json.decoder.JSONDecodeError:
                     if retry_count == retries:

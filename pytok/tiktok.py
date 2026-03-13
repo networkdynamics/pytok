@@ -158,8 +158,10 @@ class PyTok:
         """Check if URL matches patterns we want to track."""
         return any(pattern in url for pattern in self._TRACKED_URL_PATTERNS)
 
-    def _on_response(self, event: cdp.network.ResponseReceived):
+    def _on_response(self, event: cdp.network.ResponseReceived, connection=None):
         """Handle network response events from CDP."""
+        if not isinstance(event, cdp.network.ResponseReceived):
+            return
         url = event.response.url
         # Early filter - only track URLs we care about
         if not self._should_track_url(url):
@@ -171,39 +173,38 @@ class PyTok:
             'response': event.response
         }
 
-    def _on_loading_finished(self, event: cdp.network.LoadingFinished):
-        """Handle when response body is ready - schedule immediate fetch."""
+    def _on_loading_finished(self, event: cdp.network.LoadingFinished, connection=None):
+        """Mark request as ready for body fetch - no async work in callbacks."""
+        if not isinstance(event, cdp.network.LoadingFinished):
+            return
         request_id = event.request_id
         if request_id not in self._pending_requests:
             return
-
-        info = self._pending_requests.pop(request_id)
-        # Schedule async fetch - zendriver handlers don't await coroutines
-        asyncio.create_task(self._fetch_response_body(request_id, info))
-
-    async def _fetch_response_body(self, request_id, info):
-        """Fetch response body immediately before Chrome GCs it."""
-        try:
-            result = await self._page.send(cdp.network.get_response_body(request_id))
-            body = result[0] if isinstance(result, tuple) else result.body
-            if body:
-                self._collected_responses.append({
-                    'url': info['url'],
-                    'body': body,
-                    'response': info['response']
-                })
-        except Exception:
-            # Body may not be available (redirects, cached, etc.) - ignore silently
-            pass
+        self._pending_requests[request_id]['ready'] = True
 
     async def process_pending_responses(self, url_pattern=None):
-        """Return collected responses matching the URL pattern."""
-        # Give a moment for any in-flight handlers to complete
-        await asyncio.sleep(0.1)
+        """Fetch bodies for ready requests and return those matching the URL pattern."""
+        # Fetch bodies for all ready requests
+        ready_ids = [
+            rid for rid, info in self._pending_requests.items()
+            if info['ready']
+        ]
+        for request_id in ready_ids:
+            info = self._pending_requests.pop(request_id)
+            try:
+                result = await self._page.send(cdp.network.get_response_body(request_id))
+                body = result[0] if isinstance(result, tuple) else result.body
+                if body:
+                    self._collected_responses.append({
+                        'url': info['url'],
+                        'body': body,
+                        'response': info['response']
+                    })
+            except Exception:
+                pass
 
         results = []
         remaining = []
-
         for resp in self._collected_responses:
             if url_pattern and url_pattern not in resp['url']:
                 remaining.append(resp)

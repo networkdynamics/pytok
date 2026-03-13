@@ -92,62 +92,67 @@ class User(Base):
             )
 
         try:
-            # Call TikTok API directly instead of using TikTok-Api's user.info()
-            # to handle empty/invalid responses ourselves
-            url_params = {
-                "secUid": self.sec_uid if self.sec_uid else "",
-                "uniqueId": self.username,
-            }
-
-            try:
-                resp = await self.parent.tiktok_api.make_request(
-                    url="https://www.tiktok.com/api/user/detail/",
-                    params=url_params,
-                )
-            except EmptyResponseException:
-                raise ApiFailedException("TikTok API returned empty response")
-
-            if resp is None:
-                raise ApiFailedException("TikTok returned None response")
-
-            status_code = max(resp.get('statusCode', 0), resp.get('status_code', 0))
-
-            if status_code != 0:
-                if status_code in (10202, 10221, 100002):
-                    raise NotFoundException(
-                        f"TikTok indicated that this user does not exist: statusCode={status_code}"
-                    )
-                elif status_code in (10101, 209002):
-                    if await self.parent._is_logged_in():
-                        raise ApiFailedException()
-                    else:
-                        raise LoginException(
-                            f"TikTok requires login to view this content, log in using the login() method before accessing this user: statusCode={status_code}"
-                        )
-                elif status_code == 10222:
-                    raise AccountPrivateException(
-                        f"This TikTok account is private and cannot be scraped: statusCode={status_code}"
-                    )
-                else:
-                    raise ApiFailedException(
-                        f"TikTok returned error for user info: statusCode={status_code}"
-                    )
-
-            # Check if we got valid user data
-            user_info = resp.get("userInfo", {})
-            user_data = user_info.get("user", {})
-
-            if not user_data or not user_data.get("id"):
-                raise ApiFailedException("TikTok API returned invalid user data")
-
-            self.as_dict = resp
-            self.__extract_from_data()
-            self._used_api_for_info = True
-            return resp
+            return await self._info_full_api(**kwargs)
         except ApiFailedException as ex:
             self.parent.logger.warning(f"TikTok-Api user.info_full() failed: {ex}. Falling back to scraping method.")
             self._used_api_for_info = False
             return await self._info_full_scrape(**kwargs)
+
+    async def _info_full_api(self, **kwargs) -> dict:
+        # Call TikTok API directly instead of using TikTok-Api's user.info()
+        # to handle empty/invalid responses ourselves
+        url_params = {
+            "secUid": self.sec_uid if self.sec_uid else "",
+            "uniqueId": self.username,
+        }
+
+        try:
+            resp = await self.parent.tiktok_api.make_request(
+                url="https://www.tiktok.com/api/user/detail/",
+                params=url_params,
+                invalid_response_callback=lambda r: 'id' not in r.get('userInfo', {}).get('user', {})
+
+            )
+        except EmptyResponseException:
+            raise ApiFailedException("TikTok API returned empty response")
+
+        if resp is None:
+            raise ApiFailedException("TikTok returned None response")
+
+        status_code = max(resp.get('statusCode', 0), resp.get('status_code', 0))
+
+        if status_code != 0:
+            if status_code in (10202, 10221, 100002):
+                raise NotFoundException(
+                    f"TikTok indicated that this user does not exist: statusCode={status_code}"
+                )
+            elif status_code in (10101, 209002):
+                if await self.parent._is_logged_in():
+                    raise ApiFailedException()
+                else:
+                    raise LoginException(
+                        f"TikTok requires login to view this content, log in using the login() method before accessing this user: statusCode={status_code}"
+                    )
+            elif status_code == 10222:
+                raise AccountPrivateException(
+                    f"This TikTok account is private and cannot be scraped: statusCode={status_code}"
+                )
+            else:
+                raise ApiFailedException(
+                    f"TikTok returned error for user info: statusCode={status_code}"
+                )
+
+        # Check if we got valid user data
+        user_info = resp.get("userInfo", {})
+        user_data = user_info.get("user", {})
+
+        if not user_data or not user_data.get("id"):
+            raise ApiFailedException("TikTok API returned invalid user data")
+
+        self.as_dict = resp
+        self.__extract_from_data()
+        self._used_api_for_info = True
+        return resp
 
     async def _info_full_scrape(self, **kwargs) -> dict:
         url = f"https://www.tiktok.com/@{self.username}"
@@ -243,7 +248,7 @@ class User(Base):
 
         remaining = None if count is None else count - amount_yielded
         try:
-            async for video in self._get_videos_api(remaining, 0, get_bytes, **kwargs):
+            async for video in self._get_videos_api(count=remaining, cursor=0, get_bytes=get_bytes, **kwargs):
                 yield video
         except ApiFailedException as ex:
             self.parent.logger.warning(f"API method failed with exception: {ex}. Falling back to scraping method.")
@@ -251,7 +256,7 @@ class User(Base):
                 yield video
 
 
-    async def _get_videos_api(self, count, cursor, get_bytes, **kwargs) -> Iterator[Video]:
+    async def _get_videos_api(self, count=None, cursor=0, get_bytes=False, **kwargs) -> Iterator[Video]:
         # Use TikTok-Api's make_request method instead of manual requests
         self.parent.logger.debug(f"Starting _get_videos_api with cursor={cursor}, count={count}")
         amount_yielded = 0
